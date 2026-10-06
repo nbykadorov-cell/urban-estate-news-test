@@ -3,7 +3,7 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
 
   try {
-    const r = await fetch("https://example.com/", {
+    const r = await fetch("https://161.ru/text/realty/", {
       method: "GET",
       headers: {
         "User-Agent": "Mozilla/5.0",
@@ -15,14 +15,14 @@ module.exports = async (req, res) => {
 
     res.status(200).json({
       ok: true,
-      target: "https://example.com/",
+      target: "https://161.ru/text/realty/",
       httpStatus: r.status,
       contentLength: body.length
     });
   } catch (e) {
     res.status(200).json({
       ok: false,
-      target: "https://example.com/",
+      target: "https://161.ru/text/realty/",
       errorName: e?.name || "Error",
       error: e?.message || String(e)
     });
