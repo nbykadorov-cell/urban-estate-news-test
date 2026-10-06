@@ -2,61 +2,94 @@ module.exports = async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
 
-  const target = "https://161.ru/text/realty/";
+  const target =
+    "https://161.ru/text/realty/2026/10/06/76680602/";
 
   try {
     const response = await fetch(target, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml"
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
+        "Accept":
+          "text/html,application/xhtml+xml"
       }
     });
 
     const html = await response.text();
 
-    const links = [];
+    // title
+    let title = "";
 
-    const linkRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    const titleMatch = html.match(
+      /<title[^>]*>([\s\S]*?)<\/title>/i
+    );
 
-    let match;
-
-    while ((match = linkRe.exec(html)) !== null) {
-      const url = match[1];
-      const title = match[2]
+    if (titleMatch) {
+      title = titleMatch[1]
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+    }
 
-      if (
-        url.includes("/text/realty/") &&
-        title.length >= 20
-      ) {
-        links.push({
-          url: url,
-          title: title
-        });
-      }
+    // description
+    let description = "";
 
-      if (links.length >= 10) {
-        break;
-      }
+    const descriptionMatch = html.match(
+      /<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)["']/i
+    );
+
+    if (descriptionMatch) {
+      description = descriptionMatch[1]
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    // og:image
+    let image = "";
+
+    const imageMatch = html.match(
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+    );
+
+    if (imageMatch) {
+      image = imageMatch[1];
+    }
+
+    // canonical
+    let canonical = "";
+
+    const canonicalMatch = html.match(
+      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
+    );
+
+    if (canonicalMatch) {
+      canonical = canonicalMatch[1];
     }
 
     res.status(200).json({
       ok: true,
-      test: "E-161RU-links",
+      test: "F-161RU-article",
+      httpStatus: response.status,
       htmlLength: html.length,
-      count: links.length,
-      items: links
+      title: title,
+      description: description,
+      image: image,
+      canonical: canonical
     });
 
   } catch (error) {
 
     res.status(200).json({
       ok: false,
-      test: "E-161RU-links",
-      errorName: error && error.name ? error.name : "Error",
-      error: error && error.message ? error.message : String(error)
+      test: "F-161RU-article",
+      errorName:
+        error && error.name
+          ? error.name
+          : "Error",
+      error:
+        error && error.message
+          ? error.message
+          : String(error)
     });
 
   }
