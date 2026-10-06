@@ -1,31 +1,30 @@
 module.exports = async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "no-store");
 
   try {
-    const response = await fetch("https://161.ru/text/realty/", {
+    const r = await fetch("https://example.com/", {
+      method: "GET",
       headers: {
         "User-Agent": "Mozilla/5.0",
         "Accept": "text/html,application/xhtml+xml"
       }
     });
 
-    const html = await response.text();
+    const body = await r.text();
 
     res.status(200).json({
       ok: true,
-      test: "fetch-only",
-      source: "161.RU",
-      httpStatus: response.status,
-      htmlLength: html.length
+      target: "https://example.com/",
+      httpStatus: r.status,
+      contentLength: body.length
     });
-  } catch (error) {
+  } catch (e) {
     res.status(200).json({
       ok: false,
-      test: "fetch-only",
-      source: "161.RU",
-      error: error && error.message ? error.message : String(error)
+      target: "https://example.com/",
+      errorName: e?.name || "Error",
+      error: e?.message || String(e)
     });
   }
 };
