@@ -1,16 +1,7 @@
-export default function handler(request) {
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      message: "Urban Estate News API works",
-      time: new Date().toISOString()
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*"
-      }
-    }
-  );
-}
+module.exports = (req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: "Urban Estate News API works",
+    timestamp: new Date().toISOString()
+  });
+};
