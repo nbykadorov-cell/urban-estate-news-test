@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
 
     // 161.RU is server-rendered. We intentionally use a very small,
     // dependency-free parser for this first integration test.
-    const linkRe = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+    const linkRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     let match;
 
     while ((match = linkRe.exec(html)) !== null && items.length < 20) {
