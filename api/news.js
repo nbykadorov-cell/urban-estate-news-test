@@ -1,6 +1,8 @@
-const SOURCE_CONFIG = {
+// api/news.js
+
+const SOURCES = {
   "161ru": {
-    id: "161ru",
+    id: "g0a28v",
     name: "161.RU",
     category: "rostov",
     listUrl: "https://161.ru/text/realty/",
@@ -8,7 +10,7 @@ const SOURCE_CONFIG = {
   },
 
   "93ru": {
-    id: "93ru",
+    id: "p4x7s2",
     name: "93.RU",
     category: "krasnodar",
     listUrl: "https://93.ru/text/realty/",
@@ -16,7 +18,7 @@ const SOURCE_CONFIG = {
   },
 
   "krasdom": {
-    id: "krasdom",
+    id: "90cg38",
     name: "КРАСДОМ",
     category: "krasnodar",
     listUrl: "https://krasdom.ru/news/",
@@ -24,7 +26,7 @@ const SOURCE_CONFIG = {
   },
 
   "domclick": {
-    id: "domclick",
+    id: "e74yvs",
     name: "Домклик",
     category: "federal",
     listUrl: "https://blog.domclick.ru/novosti",
@@ -32,7 +34,7 @@ const SOURCE_CONFIG = {
   },
 
   "domrf": {
-    id: "domrf",
+    id: "zni758",
     name: "ДОМ.РФ",
     category: "federal",
     listUrl: "https://спроси.дом.рф/news/",
@@ -41,371 +43,131 @@ const SOURCE_CONFIG = {
 };
 
 
-// ============================================================
-// HTML / URL
-// ============================================================
+// ======================================================
+// SETTINGS
+// ======================================================
 
-function decodeHtmlEntities(str) {
-  return String(str || "")
+const DEFAULT_LIMIT = 15;
+const DEFAULT_DAYS = 7;
+
+const FETCH_TIMEOUT = 15000;
+
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+];
+
+
+// ======================================================
+// BASIC HELPERS
+// ======================================================
+
+function cleanText(value) {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, n) => {
-      try {
-        return String.fromCodePoint(Number(n));
-      } catch {
-        return _;
-      }
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
-      try {
-        return String.fromCodePoint(parseInt(n, 16));
-      } catch {
-        return _;
-      }
-    });
-}
-
-
-function cleanText(str) {
-  return decodeHtmlEntities(
-    String(str || "")
-      .replace(/<[^>]*>/g, " ")
-      .replace(/\s+/g, " ")
-  ).trim();
-}
-
-
-function absoluteUrl(href, baseUrl) {
-  try {
-    return new URL(href, baseUrl).href;
-  } catch {
-    return "";
-  }
-}
-
-
-function normalizeUrl(url) {
-  try {
-    const u = new URL(url);
-
-    u.hash = "";
-
-    [
-      "utm_source",
-      "utm_medium",
-      "utm_campaign",
-      "utm_term",
-      "utm_content",
-      "erid",
-      "from",
-      "source"
-    ].forEach(key => {
-      u.searchParams.delete(key);
-    });
-
-    let result = u.href;
-
-    if (result.endsWith("/")) {
-      result = result.slice(0, -1);
-    }
-
-    return result;
-
-  } catch {
-    return String(url || "");
-  }
-}
-
-
-function normalizeTitle(title) {
-  return cleanText(title)
-    .toLowerCase()
-    .replace(/[«»"“”]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 
-// ============================================================
-// DATE
-// ============================================================
+function normalizeText(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[«»"“”„]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-function normalizeDate(value) {
-  if (!value) {
+
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .trim();
+}
+
+
+function absoluteUrl(url, baseUrl) {
+  if (!url) return "";
+
+  try {
+    return new URL(url, baseUrl).href;
+  } catch {
     return "";
   }
+}
+
+
+function isSameDomain(url, domains) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    return domains.some(domain => {
+      return hostname === domain ||
+        hostname.endsWith("." + domain);
+    });
+
+  } catch {
+    return false;
+  }
+}
+
+
+function stripQuery(url) {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+
+// ======================================================
+// DATE HELPERS
+// ======================================================
+
+function parseDateValue(value) {
+  if (!value) return null;
 
   const text = String(value).trim();
 
-  let m = text.match(
-    /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/
+  let date = new Date(text);
+
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+
+  const m = text.match(
+    /(\d{1,2})[.\-/](\d{1,2})[.\-/](20\d{2})/
   );
 
   if (m) {
-    return [
-      m[1],
-      String(m[2]).padStart(2, "0"),
-      String(m[3]).padStart(2, "0")
-    ].join("-");
-  }
-
-  m = text.match(
-    /\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/
-  );
-
-  if (m) {
-    return [
-      m[3],
-      String(m[2]).padStart(2, "0"),
-      String(m[1]).padStart(2, "0")
-    ].join("-");
-  }
-
-  return "";
-}
-
-
-function isValidDate(date) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(
-    String(date || "")
-  );
-}
-
-
-function getToday() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
-}
-
-
-function isFutureDate(date) {
-  if (!isValidDate(date)) {
-    return false;
-  }
-
-  return date > getToday();
-}
-
-
-function isWithinDays(date, days) {
-  if (!isValidDate(date)) {
-    return false;
-  }
-
-  const articleDate =
-    new Date(date + "T00:00:00Z");
-
-  const now =
-    new Date();
-
-  const diff =
-    (
-      now.getTime() -
-      articleDate.getTime()
-    ) /
-    (1000 * 60 * 60 * 24);
-
-  return (
-    diff >= 0 &&
-    diff <= days
-  );
-}
-
-
-// ============================================================
-// META
-// ============================================================
-
-function extractMeta(html, key) {
-  const patterns = [
-    new RegExp(
-      `<meta[^>]+(?:property|name)=["']${key}["'][^>]+content=["']([^"']*)["']`,
-      "i"
-    ),
-
-    new RegExp(
-      `<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${key}["']`,
-      "i"
-    )
-  ];
-
-  for (const regex of patterns) {
-    const match =
-      html.match(regex);
-
-    if (
-      match &&
-      match[1]
-    ) {
-      return decodeHtmlEntities(
-        match[1]
-      ).trim();
-    }
-  }
-
-  return "";
-}
-
-
-function extractTitle(html) {
-  const ogTitle =
-    extractMeta(
-      html,
-      "og:title"
+    date = new Date(
+      Number(m[3]),
+      Number(m[2]) - 1,
+      Number(m[1])
     );
 
-  if (ogTitle) {
-    return cleanText(
-      ogTitle
-    );
-  }
-
-  const titleMatch =
-    html.match(
-      /<title[^>]*>([\s\S]*?)<\/title>/i
-    );
-
-  if (titleMatch) {
-    return cleanText(
-      titleMatch[1]
-    );
-  }
-
-  return "";
-}
-
-
-function extractDescription(html) {
-  return (
-    extractMeta(
-      html,
-      "og:description"
-    ) ||
-    extractMeta(
-      html,
-      "description"
-    ) ||
-    ""
-  );
-}
-
-
-function extractImage(html) {
-  return (
-    extractMeta(
-      html,
-      "og:image"
-    ) ||
-    extractMeta(
-      html,
-      "twitter:image"
-    ) ||
-    ""
-  );
-}
-
-
-function extractCanonical(
-  html,
-  fallbackUrl
-) {
-  const match =
-    html.match(
-      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
-    );
-
-  if (
-    match &&
-    match[1]
-  ) {
-    return absoluteUrl(
-      decodeHtmlEntities(
-        match[1]
-      ),
-      fallbackUrl
-    );
-  }
-
-  return fallbackUrl;
-}
-
-
-// ============================================================
-// JSON-LD
-// ============================================================
-
-function extractPublishedAt(html) {
-  const scripts =
-    html.match(
-      /<script[^>]+type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi
-    );
-
-  if (!scripts) {
-    return null;
-  }
-
-  for (const script of scripts) {
-    const body =
-      script
-        .replace(
-          /<script[^>]*>/i,
-          ""
-        )
-        .replace(
-          /<\/script>\s*$/i,
-          ""
-        )
-        .trim();
-
-    try {
-      const json =
-        JSON.parse(body);
-
-      const items =
-        Array.isArray(json)
-          ? json
-          : [json];
-
-      for (const item of items) {
-        if (
-          !item ||
-          typeof item !== "object"
-        ) {
-          continue;
-        }
-
-        const value =
-          item.datePublished ||
-          item.dateCreated ||
-          item.dateModified;
-
-        if (!value) {
-          continue;
-        }
-
-        const date =
-          normalizeDate(
-            value
-          );
-
-        if (
-          date &&
-          !isFutureDate(date)
-        ) {
-          return {
-            date,
-            publishedAt: value
-          };
-        }
-      }
-
-    } catch {
-      // Некорректный JSON-LD
+    if (!isNaN(date.getTime())) {
+      return date;
     }
   }
 
@@ -413,33 +175,134 @@ function extractPublishedAt(html) {
 }
 
 
-// ============================================================
-// VISIBLE DATE
-// ============================================================
+function formatDate(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return "";
+  }
 
-function extractVisibleDate(html) {
-  const patterns = [
-    /\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b/g,
-    /\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g
-  ];
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
 
-  for (const regex of patterns) {
-    const matches =
-      html.match(regex);
+  return `${y}-${m}-${d}`;
+}
 
-    if (!matches) {
-      continue;
+
+function daysAgoDate(days) {
+  const date = new Date();
+
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - days);
+
+  return date;
+}
+
+
+function isRecent(date, days) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return false;
+  }
+
+  const minDate = daysAgoDate(days);
+
+  return date >= minDate;
+}
+
+
+// ======================================================
+// FETCH
+// ======================================================
+
+async function fetchText(url, options = {}) {
+
+  const controller = new AbortController();
+
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, FETCH_TIMEOUT);
+
+  try {
+
+    const headers = {
+      "User-Agent":
+        options.userAgent ||
+        USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
+
+      "Accept":
+        options.accept ||
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+
+      "Accept-Language":
+        "ru-RU,ru;q=0.9,en-US;q=0.7,en;q=0.6",
+
+      "Cache-Control": "no-cache",
+
+      "Pragma": "no-cache"
+    };
+
+    if (options.referer) {
+      headers["Referer"] = options.referer;
     }
 
-    for (const value of matches) {
-      const date =
-        normalizeDate(value);
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers,
+      signal: controller.signal
+    });
 
-      if (
-        date &&
-        !isFutureDate(date)
-      ) {
-        return date;
+    const text = await response.text();
+
+    if (!response.ok) {
+
+      const error = new Error(
+        `HTTP ${response.status}`
+      );
+
+      error.status = response.status;
+      error.body = text.slice(0, 500);
+
+      throw error;
+    }
+
+    return {
+      text,
+      status: response.status,
+      finalUrl: response.url
+    };
+
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
+// ======================================================
+// HTML META
+// ======================================================
+
+function getMeta(html, names) {
+
+  for (const name of names) {
+
+    const patterns = [
+      new RegExp(
+        `<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["']`,
+        "i"
+      ),
+
+      new RegExp(
+        `<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${name}["']`,
+        "i"
+      )
+    ];
+
+    for (const pattern of patterns) {
+
+      const match = html.match(pattern);
+
+      if (match && match[1]) {
+        return decodeHtml(match[1]);
       }
     }
   }
@@ -448,85 +311,209 @@ function extractVisibleDate(html) {
 }
 
 
-// ============================================================
-// FETCH
-// ============================================================
+function getTitle(html) {
 
-async function fetchHtml(url) {
-  const controller =
-    new AbortController();
+  const og = getMeta(html, [
+    "og:title",
+    "twitter:title"
+  ]);
 
-  const timeout =
-    setTimeout(() => {
-      controller.abort();
-    }, 12000);
+  if (og) return cleanText(og);
 
-  try {
-    const response =
-      await fetch(
-        url,
-        {
-          redirect: "follow",
-          signal: controller.signal,
+  const match = html.match(
+    /<title[^>]*>([\s\S]*?)<\/title>/i
+  );
 
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (compatible; UrbanEstateNewsBot/1.0)",
-
-            "Accept":
-              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-            "Accept-Language":
-              "ru-RU,ru;q=0.9,en;q=0.8"
-          }
-        }
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        `HTTP ${response.status}`
-      );
-    }
-
-    return await response.text();
-
-  } finally {
-    clearTimeout(
-      timeout
-    );
-  }
+  return match
+    ? cleanText(match[1])
+    : "";
 }
 
 
-// ============================================================
+function getDescription(html) {
+
+  const meta = getMeta(html, [
+    "description",
+    "og:description",
+    "twitter:description"
+  ]);
+
+  return cleanText(meta);
+}
+
+
+function getImage(html, baseUrl) {
+
+  const image = getMeta(html, [
+    "og:image",
+    "twitter:image",
+    "twitter:image:src"
+  ]);
+
+  return absoluteUrl(image, baseUrl);
+}
+
+
+// ======================================================
+// JSON-LD
+// ======================================================
+
+function extractJsonLd(html) {
+
+  const blocks = [];
+
+  const regex =
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  let match;
+
+  while ((match = regex.exec(html))) {
+
+    const raw = match[1].trim();
+
+    if (!raw) continue;
+
+    try {
+
+      const json = JSON.parse(raw);
+
+      if (Array.isArray(json)) {
+        blocks.push(...json);
+      } else {
+        blocks.push(json);
+      }
+
+    } catch {
+      // ignore malformed JSON-LD
+    }
+  }
+
+  return blocks;
+}
+
+
+function findJsonLdArticle(html) {
+
+  const blocks = extractJsonLd(html);
+
+  for (const block of blocks) {
+
+    const type = String(
+      block?.["@type"] || ""
+    ).toLowerCase();
+
+    if (
+      type.includes("article") ||
+      type.includes("newsarticle") ||
+      type.includes("blogposting")
+    ) {
+      return block;
+    }
+  }
+
+  return null;
+}
+
+
+// ======================================================
+// DATE FROM HTML
+// ======================================================
+
+function extractDateFromHtml(html) {
+
+  const jsonArticle = findJsonLdArticle(html);
+
+  if (jsonArticle) {
+
+    const values = [
+      jsonArticle.datePublished,
+      jsonArticle.dateCreated,
+      jsonArticle.dateModified
+    ];
+
+    for (const value of values) {
+
+      const date = parseDateValue(value);
+
+      if (date) return date;
+    }
+  }
+
+  const metaDate = getMeta(html, [
+    "article:published_time",
+    "datePublished",
+    "date",
+    "pubdate"
+  ]);
+
+  const metaParsed = parseDateValue(metaDate);
+
+  if (metaParsed) {
+    return metaParsed;
+  }
+
+  const visiblePatterns = [
+    /\b(0?[1-9]|[12]\d|3[01])[.\-/](0?[1-9]|1[0-2])[.\-/](20\d{2})\b/,
+    /\b(20\d{2})-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])\b/
+  ];
+
+  for (const pattern of visiblePatterns) {
+
+    const match = html.match(pattern);
+
+    if (!match) continue;
+
+    let date;
+
+    if (match[1].length === 4) {
+
+      date = new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3])
+      );
+
+    } else {
+
+      date = new Date(
+        Number(match[3]),
+        Number(match[2]) - 1,
+        Number(match[1])
+      );
+    }
+
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  return null;
+}
+
+
+// ======================================================
 // TOPIC
-// ============================================================
+// ======================================================
 
 function getTopicCategory(title) {
-  const text =
-    String(title || "")
-      .toLowerCase();
+
+  const text = String(title || "")
+    .toLowerCase();
 
   if (
-    /ипотек|ипотеч|семейн.*ипотек|ставк.*кредит|кредит|рефинанс|банк|банки/.test(
-      text
-    )
+    /ипотек|ипотеч|семейн.*ипотек|ставк.*кредит|кредит|рефинанс|банк|банки/.test(text)
   ) {
     return "mortgage";
   }
 
   if (
-    /новострой|новостроек|застройщик|застройщики|девелопер|жк |жилой комплекс|строительств|домов|дольщик|долев/.test(
-      text
-    )
+    /новострой|новостроек|застройщик|застройщики|девелопер|жк |жилой комплекс|строительств|домов|дольщик|долев/.test(text)
   ) {
     return "newbuildings";
   }
 
   if (
-    /закон|законодатель|росреестр|госдум|минфин|правительств|налог|штраф|правил|изменен|регулирован/.test(
-      text
-    )
+    /закон|законодатель|росреестр|госдум|минфин|правительств|налог|штраф|правил|изменен|регулирован/.test(text)
   ) {
     return "laws";
   }
@@ -535,800 +522,333 @@ function getTopicCategory(title) {
 }
 
 
-// ============================================================
-// ДОМ.РФ — ФИЛЬТР РЕЛЕВАНТНОСТИ
-// ============================================================
+// ======================================================
+// DOMRF RELEVANCE
+// ======================================================
 
-function isRelevantDomrfArticle(
-  title,
-  description
-) {
-  const titleText =
-    cleanText(title)
-      .toLowerCase();
+function isRelevantDomrfArticle(title, description) {
 
-  const descriptionText =
-    cleanText(description)
-      .toLowerCase();
+  const text = normalizeText(
+    `${title} ${description}`
+  );
 
-  const text =
-    `${titleText} ${descriptionText}`;
+  const irrelevant = [
 
-
-  // ----------------------------------------------------------
-  // 1. Явно нерелевантные темы
-  // ----------------------------------------------------------
-
-  const irrelevantPatterns = [
-    /пенси[яйи]/,
-    /пенсионер/,
-    /пенсионн/,
-    /пособи[яй]/,
+    /пенси/,
+    /пенсион/,
+    /пособи/,
     /социальн.*выплат/,
-    /праздник/,
-    /выходн.*дн/,
-    /рабоч.*дн/,
-    /новогод/,
-    /ноябр/,
-    /декабр/,
-    /январ/,
+    /выходн.*ноябр/,
     /как отдыхаем/,
-    /отдыхать/,
-    /путешеств/,
+    /праздник/,
     /туризм/,
+    /путешеств/,
     /погода/,
     /рецепт/,
-    /еда/,
-    /продукт/,
-    /здоровь/,
-    /медицин/,
-    /лекарств/,
+    /здоров/,
     /спорт/,
-    /футбол/,
-    /пенсионн.*накоплен/,
-    /накопительн.*пенси/,
+    /телефонн.*мошен/,
     /стар.*вещ/,
-    /вещи.*выбрасыв/,
-    /мошенничеств.*телефон/,
-    /телефон.*мошенничеств/
+    /не стоит выбрасывать/
   ];
 
+  if (
+    irrelevant.some(pattern => pattern.test(text))
+  ) {
 
-  const hasIrrelevantTopic =
-    irrelevantPatterns.some(
-      regex =>
-        regex.test(text)
-    );
+    const strongRealEstate = [
+      /ипотек/,
+      /квартир/,
+      /недвижим/,
+      /жиль/,
+      /новостро/,
+      /застройщик/,
+      /росреестр/,
+      /егрн/,
+      /кадастр/,
+      /ижс/,
+      /земельн.*участ/,
+      /жкх/,
+      /жку/,
+      /капремонт/,
+      /маткапитал/,
+      /долев/
+    ];
 
+    if (
+      !strongRealEstate.some(pattern => pattern.test(text))
+    ) {
+      return false;
+    }
+  }
 
-  /*
-   * Если одновременно есть сильный
-   * признак недвижимости — не отбрасываем.
-   *
-   * Например:
-   * "Пенсионер купил квартиру..."
-   *
-   * Такая новость всё-таки может быть
-   * полезна для риелтора.
-   */
-
-  const strongRealEstatePatterns = [
+  const strong = [
     /недвижим/,
     /квартир/,
     /жиль/,
     /ипотек/,
-    /ипотеч/,
     /новостро/,
     /застройщик/,
-    /застройщики/,
     /девелопер/,
-    /вторичн/,
+    /вторич/,
     /аренд/,
     /долев/,
-    /дольщик/,
     /маткапитал/,
-    /материнск.*капитал/,
     /росреестр/,
     /егрн/,
     /кадастр/,
     /ижс/,
     /земельн.*участ/,
-    /земельный участок/,
     /домовлад/,
     /жкх/,
     /жку/,
-    /коммунальн.*услуг/,
-    /капремонт/
-  ];
-
-
-  const strongRealEstateCount =
-    strongRealEstatePatterns.filter(
-      regex =>
-        regex.test(text)
-    ).length;
-
-
-  /*
-   * Явно нерелевантная новость
-   * без недвижимости.
-   */
-
-  if (
-    hasIrrelevantTopic &&
-    strongRealEstateCount === 0
-  ) {
-    return false;
-  }
-
-
-  // ----------------------------------------------------------
-  // 2. Сильные признаки
-  // ----------------------------------------------------------
-
-  const strongKeywords = [
-    /недвижим/,
-    /жиль/,
-    /квартир/,
-    /ипотек/,
-    /ипотеч/,
-    /новостро/,
-    /застройщик/,
-    /застройщики/,
-    /девелопер/,
-    /вторичн/,
-    /аренд/,
-    /долев/,
-    /дольщик/,
-    /маткапитал/,
-    /материнск.*капитал/,
-    /семейн.*ипотек/,
-    /ставк.*ипотек/,
-    /рефинанс/,
-    /росреестр/,
-    /егрн/,
-    /кадастр/,
-    /ижс/,
-    /земельн/,
-    /земельный участок/,
-    /загородн/,
-    /домовлад/,
-    /жкх/,
-    /жку/,
-    /коммунальн/,
+    /коммуналь/,
     /капремонт/,
-    /жилищн/,
-    /налог.*недвиж/,
-    /налог.*квартир/,
-    /налог.*жиль/,
-    /вычет.*ипотек/,
-    /вычет.*квартир/,
-    /господдерж.*жиль/,
-    /господдерж.*ипотек/
+    /жилищн/
   ];
 
-
-  let score = 0;
-
-
-  for (
-    const regex of strongKeywords
-  ) {
-    if (
-      regex.test(titleText)
-    ) {
-      score += 4;
-    } else if (
-      regex.test(descriptionText)
-    ) {
-      score += 2;
-    }
-  }
-
-
-  // ----------------------------------------------------------
-  // 3. Контекстные слова
-  // ----------------------------------------------------------
-
-  const contextualKeywords = [
-    /госуслуг/,
-    /правительств/,
-    /госдум/,
-    /минфин/,
-    /минстрой/,
-    /налог/,
-    /банк/,
-    /банки/,
+  const context = [
+    /ставк/,
     /кредит/,
-    /закон/,
+    /собственник/,
+    /владельц/,
     /регистрац/,
-    /ограничен/,
-    /собственник/,
-    /собственност/,
-    /право пользован/
+    /налог/,
+    /правил/,
+    /программ/,
+    /господдерж/
   ];
 
+  const strongCount =
+    strong.filter(pattern => pattern.test(text)).length;
 
-  for (
-    const regex of contextualKeywords
-  ) {
-    if (
-      regex.test(text)
-    ) {
-      score += 1;
-    }
-  }
-
-
-  // ----------------------------------------------------------
-  // 4. Сильный контекст недвижимости
-  // ----------------------------------------------------------
-
-  const realEstateContext = [
-    /недвижим/,
-    /квартир/,
-    /жиль/,
-    /ипотек/,
-    /дом/,
-    /участк/,
-    /застрой/,
-    /аренд/,
-    /егрн/,
-    /росреестр/,
-    /жку/,
-    /жкх/,
-    /собственник/,
-    /собственност/
-  ];
-
-
-  let realEstateContextCount = 0;
-
-
-  for (
-    const regex of realEstateContext
-  ) {
-    if (
-      regex.test(text)
-    ) {
-      realEstateContextCount++;
-    }
-  }
-
-
-  // ----------------------------------------------------------
-  // 5. Специальные полезные темы
-  // ----------------------------------------------------------
-
-  /*
-   * Материнский капитал.
-   *
-   * Само слово "маткапитал"
-   * уже достаточно сильный признак,
-   * даже если в описании напрямую
-   * не написано "квартира".
-   */
+  const contextCount =
+    context.filter(pattern => pattern.test(text)).length;
 
   if (
-    /маткапитал|материнск.*капитал/.test(
-      text
-    )
+    /маткапитал/.test(text)
   ) {
     return true;
   }
 
-
-  /*
-   * ЖКХ / коммунальные услуги.
-   */
-
   if (
-    /жкх|жку|коммунальн.*услуг/.test(
-      text
-    )
+    /жкх|жку|коммуналь|капремонт/.test(text) &&
+    strongCount >= 1
   ) {
     return true;
   }
 
-
-  /*
-   * ЕГРН / Росреестр.
-   */
-
   if (
-    /егрн|росреестр|кадастр/.test(
-      text
-    )
+    /егрн|росреестр|кадастр/.test(text)
   ) {
     return true;
   }
 
-
-  /*
-   * Собственник + регистрация/ограничения
-   * обычно относится к недвижимости.
-   */
-
   if (
-    /собственник|собственност/.test(text) &&
-    /регистрац|ограничен|егрн|недвижим|квартир|жиль/.test(text)
+    /владельц.*недвижим/.test(text) &&
+    /регистрац|ограничен|собствен/.test(text)
   ) {
     return true;
   }
 
-
-  // ----------------------------------------------------------
-  // 6. Финальное решение по score
-  // ----------------------------------------------------------
-
-  /*
-   * Достаточно сильный сигнал.
-   */
-
-  if (
-    score >= 4
-  ) {
+  if (strongCount >= 2) {
     return true;
   }
 
-
-  /*
-   * Два и более признака недвижимости.
-   */
-
   if (
-    realEstateContextCount >= 2
+    strongCount >= 1 &&
+    contextCount >= 1
   ) {
     return true;
   }
-
-
-  /*
-   * Контекстная тема + недвижимость.
-   */
-
-  const hasContextual =
-    contextualKeywords.some(
-      regex =>
-        regex.test(text)
-    );
-
-
-  if (
-    hasContextual &&
-    realEstateContextCount >= 1
-  ) {
-    return true;
-  }
-
 
   return false;
 }
 
 
-// ============================================================
-// LINKS
-// ============================================================
+// ======================================================
+// URL EXTRACTION
+// ======================================================
 
-function extractLinks(
-  html,
-  baseUrl
-) {
+function extractLinks(html, baseUrl) {
+
   const result = [];
 
   const regex =
-    /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
   let match;
 
-  while (
-    (match = regex.exec(html))
-  ) {
-    const url =
-      absoluteUrl(
-        match[1],
-        baseUrl
-      );
+  while ((match = regex.exec(html))) {
 
-    if (!url) {
-      continue;
-    }
+    const href = absoluteUrl(
+      decodeHtml(match[1]),
+      baseUrl
+    );
 
-    result.push(url);
+    if (!href) continue;
+
+    const text = cleanText(match[2]);
+
+    result.push({
+      url: stripQuery(href),
+      text
+    });
   }
 
   return result;
 }
 
 
-// ============================================================
-// 161.RU / 93.RU
-// ============================================================
+// ======================================================
+// 161.RU / 93.RU LIST
+// ======================================================
 
-function isN1ArticleUrl(
-  url,
-  host
-) {
-  const escapedHost =
-    host === "161.ru"
-      ? "161"
-      : "93";
+function extractN1Links(html, sourceId) {
+
+  const links = extractLinks(
+    html,
+    SOURCES[sourceId].listUrl
+  );
+
+  const source = SOURCES[sourceId];
+
+  const host =
+    sourceId === "161ru"
+      ? "161.ru"
+      : "93.ru";
 
   const regex =
     new RegExp(
-      `^https://${escapedHost}\\.ru/text/realty/20\\d{2}/\\d{2}/\\d{2}/\\d+/?$`,
+      `^https://${host.replace(".", "\\.")}/text/realty/20\\d{2}/\\d{2}/\\d{2}/\\d+/?$`,
       "i"
     );
 
-  return regex.test(
-    url
-  );
+  const unique = new Map();
+
+  for (const item of links) {
+
+    if (!regex.test(item.url)) continue;
+
+    unique.set(
+      item.url,
+      item
+    );
+  }
+
+  return Array.from(unique.values());
 }
 
 
-async function fetchN1List(
-  source
-) {
-  const html =
-    await fetchHtml(
-      source.listUrl
-    );
+// ======================================================
+// KRASDOM LIST
+// ======================================================
 
-  const links =
-    extractLinks(
-      html,
-      source.listUrl
-    );
+function extractKrasdomLinks(html) {
 
-  const unique =
-    new Map();
+  const links = extractLinks(
+    html,
+    SOURCES.krasdom.listUrl
+  );
 
+  const unique = new Map();
 
-  for (
-    const url of links
-  ) {
-    const clean =
-      normalizeUrl(url);
+  for (const item of links) {
 
-    const valid =
-      isN1ArticleUrl(
-        clean,
-        source.id === "161ru"
-          ? "161.ru"
-          : "93.ru"
-      );
-
-    if (!valid) {
+    if (
+      !/^https:\/\/krasdom\.ru\/news\/.+/i.test(item.url)
+    ) {
       continue;
     }
 
-
-    const dateMatch =
-      clean.match(
-        /\/(20\d{2})\/(\d{2})\/(\d{2})\//
-      );
-
-
-    const date =
-      dateMatch
-        ? [
-            dateMatch[1],
-            dateMatch[2],
-            dateMatch[3]
-          ].join("-")
-        : "";
-
+    if (
+      item.url ===
+      "https://krasdom.ru/news/"
+    ) {
+      continue;
+    }
 
     unique.set(
-      clean,
-      {
-        url: clean,
-        date
-      }
+      item.url,
+      item
     );
   }
 
-
-  return Array.from(
-    unique.values()
-  )
-    .sort((a, b) =>
-      String(b.date).localeCompare(
-        String(a.date)
-      )
-    )
-    .slice(0, 40);
+  return Array.from(unique.values());
 }
 
 
-// ============================================================
-// КРАСДОМ
-// ============================================================
+// ======================================================
+// DOMRF LIST
+// ======================================================
 
-function isKrasdomArticleUrl(
-  url
-) {
-  try {
-    const u =
-      new URL(url);
+function extractDomrfLinks(html) {
 
-    if (
-      u.hostname !==
-      "krasdom.ru"
-    ) {
-      return false;
-    }
+  const links = extractLinks(
+    html,
+    SOURCES.domrf.listUrl
+  );
 
+  const unique = new Map();
 
-    if (
-      !/^\/news\/[^/]+/i.test(
-        u.pathname
-      )
-    ) {
-      return false;
-    }
+  for (const item of links) {
 
+    try {
 
-    if (
-      u.pathname ===
-      "/news/" ||
-      u.pathname ===
-      "/news"
-    ) {
-      return false;
-    }
+      const u = new URL(item.url);
 
+      const hostname =
+        u.hostname.toLowerCase();
 
-    return true;
+      const isDomrf =
+        hostname === "xn--h1alcedd.xn--d1aqf.xn--p1ai" ||
+        hostname === "спроси.дом.рф";
 
-  } catch {
-    return false;
-  }
-}
-
-
-async function fetchKrasdomList(
-  source
-) {
-  const html =
-    await fetchHtml(
-      source.listUrl
-    );
-
-  const links =
-    extractLinks(
-      html,
-      source.listUrl
-    );
-
-  const unique =
-    new Set();
-
-
-  for (
-    const url of links
-  ) {
-    const clean =
-      normalizeUrl(url);
-
-    if (
-      isKrasdomArticleUrl(
-        clean
-      )
-    ) {
-      unique.add(
-        clean
-      );
-    }
-  }
-
-
-  return Array.from(
-    unique
-  )
-    .slice(0, 40)
-    .map(url => ({
-      url,
-      date: ""
-    }));
-}
-
-
-// ============================================================
-// ДОМКЛИК
-// ============================================================
-
-function isDomclickArticleUrl(
-  url
-) {
-  try {
-    const u =
-      new URL(url);
-
-    if (
-      u.hostname !==
-      "blog.domclick.ru"
-    ) {
-      return false;
-    }
-
-
-    const path =
-      u.pathname;
-
-
-    if (
-      path === "/" ||
-      path === "/novosti" ||
-      path === "/novosti/"
-    ) {
-      return false;
-    }
-
-
-    if (
-      /^\/(search|tag|tags|author|authors|category|categories|page|login|register|about|contacts)(\/|$)/i.test(
-        path
-      )
-    ) {
-      return false;
-    }
-
-
-    if (
-      /^\/(novosti|news|articles|article|post|posts|journal)\//i.test(
-        path
-      )
-    ) {
-      return true;
-    }
-
-
-    const parts =
-      path
-        .split("/")
-        .filter(Boolean);
-
-
-    if (
-      parts.length >= 2
-    ) {
-      const last =
-        parts[
-          parts.length - 1
-        ];
+      if (!isDomrf) continue;
 
       if (
-        last.length >= 8 &&
-        /[a-zа-я0-9]/i.test(
-          last
-        )
+        !/^\/news\/.+/i.test(u.pathname)
       ) {
-        return true;
+        continue;
       }
-    }
 
-
-    return false;
-
-  } catch {
-    return false;
-  }
-}
-
-
-async function fetchDomclickList(
-  source
-) {
-  const html =
-    await fetchHtml(
-      source.listUrl
-    );
-
-  const links =
-    extractLinks(
-      html,
-      source.listUrl
-    );
-
-  const unique =
-    new Set();
-
-
-  for (
-    const url of links
-  ) {
-    const clean =
-      normalizeUrl(url);
-
-    if (
-      isDomclickArticleUrl(
-        clean
-      )
-    ) {
-      unique.add(
-        clean
+      unique.set(
+        stripQuery(u.href),
+        {
+          url: stripQuery(u.href),
+          text: item.text
+        }
       );
+
+    } catch {
+      // ignore
     }
   }
 
-
-  return Array.from(
-    unique
-  )
-    .slice(0, 40)
-    .map(url => ({
-      url,
-      date: ""
-    }));
+  return Array.from(unique.values());
 }
 
 
-// ============================================================
-// ДОМ.РФ
-// ============================================================
+// ======================================================
+// DOMCLICK
+// ======================================================
 
-function isDomrfArticleUrl(
-  url
-) {
+function isDomclickArticleUrl(url) {
+
   try {
-    const u =
-      new URL(url);
 
-    const host =
-      u.hostname.toLowerCase();
-
-
-    const validHost =
-      host ===
-      "xn--h1alcedd.xn--d1aqf.xn--p1ai";
-
-
-    if (!validHost) {
-      return false;
-    }
-
-
-    const path =
-      u.pathname;
-
+    const u = new URL(url);
 
     if (
-      !/^\/news\/.+/i.test(
-        path
-      )
+      u.hostname !== "blog.domclick.ru"
     ) {
       return false;
     }
 
-
-    if (
-      path === "/news/" ||
-      path === "/news"
-    ) {
-      return false;
-    }
-
-
-    if (
-      /^\/news\/(rss|search|tag|tags|page|category)(\/|$)/i.test(
-        path
-      )
-    ) {
-      return false;
-    }
-
-
-    if (
-      /\.(xml|rss|json|jpg|jpeg|png|gif|webp|svg|pdf|css|js)$/i.test(
-        path
-      )
-    ) {
-      return false;
-    }
-
-
-    return true;
+    return (
+      /^\/novosti\/post\/[^/]+/i.test(u.pathname) ||
+      /^\/novosti\/[^/]+/i.test(u.pathname)
+    );
 
   } catch {
     return false;
@@ -1336,926 +856,1063 @@ function isDomrfArticleUrl(
 }
 
 
-async function fetchDomrfList(
-  source
-) {
-  const html =
-    await fetchHtml(
-      source.listUrl
-    );
+function extractDomclickLinks(html) {
 
-  const links =
-    extractLinks(
-      html,
-      source.listUrl
-    );
+  const links = extractLinks(
+    html,
+    "https://blog.domclick.ru/novosti"
+  );
 
-  const unique =
-    new Set();
+  const unique = new Map();
 
-
-  for (
-    const url of links
-  ) {
-    const clean =
-      normalizeUrl(url);
+  for (const item of links) {
 
     if (
-      isDomrfArticleUrl(
-        clean
-      )
+      !isDomclickArticleUrl(item.url)
     ) {
-      unique.add(
-        clean
-      );
+      continue;
     }
+
+    unique.set(
+      item.url,
+      {
+        url: item.url,
+        text: item.text
+      }
+    );
   }
 
-
-  return Array.from(
-    unique
-  )
-    .slice(0, 50)
-    .map(url => ({
-      url,
-      date: ""
-    }));
+  return Array.from(unique.values());
 }
 
 
-// ============================================================
-// BAD TITLES
-// ============================================================
+// ======================================================
+// DOMCLICK SEARCH FALLBACK
+// ======================================================
 
-function isBadArticleTitle(
-  title
-) {
-  const t =
-    normalizeTitle(
-      title
-    );
+async function fetchDomclickSearch() {
 
-
-  if (!t) {
-    return true;
-  }
-
-
-  if (
-    t.length < 15
-  ) {
-    return true;
-  }
-
-
-  const badTitles = [
-    "все публикации",
-    "новости",
-    "новости недвижимости",
-    "дом.рф",
-    "спроси.дом.рф",
-    "консультационный центр дом.рф",
-    "инструкции",
-    "главная"
+  const queries = [
+    "site:blog.domclick.ru/novosti/post Домклик недвижимость",
+    "site:blog.domclick.ru/novosti/post Домклик ипотека",
+    "site:blog.domclick.ru/novosti/post Домклик новостройки"
   ];
 
+  const results = [];
 
-  return badTitles.includes(
-    t
-  );
+  for (const query of queries) {
+
+    try {
+
+      const url =
+        "https://www.google.com/search?q=" +
+        encodeURIComponent(query) +
+        "&num=20";
+
+      const response =
+        await fetchText(
+          url,
+          {
+            accept:
+              "text/html,application/xhtml+xml",
+            referer:
+              "https://www.google.com/"
+          }
+        );
+
+      const links =
+        extractLinks(
+          response.text,
+          "https://www.google.com/"
+        );
+
+      for (const item of links) {
+
+        if (
+          isDomclickArticleUrl(item.url)
+        ) {
+
+          results.push({
+            url: stripQuery(item.url),
+            text: item.text
+          });
+        }
+      }
+
+    } catch {
+      // search fallback failed
+    }
+  }
+
+  const unique = new Map();
+
+  for (const item of results) {
+    unique.set(item.url, item);
+  }
+
+  return Array.from(unique.values());
 }
 
 
-// ============================================================
-// ARTICLE
-// ============================================================
+// ======================================================
+// DOMCLICK TELEGRAM FALLBACK
+// ======================================================
+//
+// Этот fallback используется только для обнаружения
+// заголовков/дат, если сам журнал закрыт от Vercel.
+//
+// Ссылка карточки при этом остается официальной
+// только если удалось обнаружить официальный URL.
+//
+
+async function fetchDomclickTelegram() {
+
+  const url =
+    "https://t.me/s/domclick";
+
+  try {
+
+    const response =
+      await fetchText(
+        url,
+        {
+          referer:
+            "https://t.me/"
+        }
+      );
+
+    return response.text;
+
+  } catch {
+
+    return "";
+  }
+}
+
+
+// ======================================================
+// ARTICLE PARSER
+// ======================================================
 
 async function parseArticle(
-  source,
-  candidate
+  sourceId,
+  candidate,
+  days
 ) {
+
+  const source =
+    SOURCES[sourceId];
+
   try {
+
+    const response =
+      await fetchText(
+        candidate.url,
+        {
+          referer:
+            source.listUrl
+        }
+      );
+
     const html =
-      await fetchHtml(
-        candidate.url
-      );
+      response.text;
 
+    const title =
+      getTitle(html);
 
-    let title =
-      extractTitle(
-        html
-      );
+    if (!title) {
 
-
-    let description =
-      extractDescription(
-        html
-      );
-
-
-    let image =
-      extractImage(
-        html
-      );
-
-
-    let url =
-      extractCanonical(
-        html,
-        candidate.url
-      );
-
-
-    title =
-      cleanText(
-        title
-      );
-
-
-    description =
-      cleanText(
-        description
-      );
-
-
-    let date = "";
-    let publishedAt = "";
-
-
-    const jsonLdDate =
-      extractPublishedAt(
-        html
-      );
-
-
-    if (jsonLdDate) {
-      date =
-        jsonLdDate.date;
-
-      publishedAt =
-        jsonLdDate.publishedAt;
-    }
-
-
-    if (!date) {
-      date =
-        normalizeDate(
-          candidate.date
-        );
-    }
-
-
-    if (!date) {
-      date =
-        extractVisibleDate(
-          html
-        );
-    }
-
-
-    if (
-      isFutureDate(date)
-    ) {
       return {
         status: "rejected",
-        reason: "future_date"
+        reason: "empty-title"
       };
     }
 
+    const description =
+      getDescription(html);
+
+    const date =
+      extractDateFromHtml(html);
 
     if (!date) {
+
       return {
         status: "rejected",
-        reason: "no_date"
+        reason: "no-date"
       };
     }
 
+    if (!isRecent(date, days)) {
 
-    if (
-      isBadArticleTitle(
-        title
-      )
-    ) {
       return {
         status: "rejected",
-        reason: "bad_title"
+        reason: "old"
       };
     }
 
-
-    /*
-     * Главный фильтр ДОМ.РФ.
-     */
-
     if (
-      source.id === "domrf" &&
+      sourceId === "domrf" &&
       !isRelevantDomrfArticle(
         title,
         description
       )
     ) {
+
       return {
         status: "rejected",
         reason: "irrelevant"
       };
     }
 
+    const image =
+      getImage(
+        html,
+        candidate.url
+      );
 
-    if (
-      source.id === "domrf" &&
-      !isDomrfArticleUrl(
-        url
-      )
-    ) {
-      return {
-        status: "rejected",
-        reason: "bad_canonical"
-      };
-    }
+    const item = {
 
+      id:
+        Buffer
+          .from(candidate.url)
+          .toString("base64")
+          .replace(/[^a-zA-Z0-9]/g, "")
+          .slice(-24),
 
-    if (image) {
-      image =
-        absoluteUrl(
-          image,
-          url
-        );
-    } else {
-      image = "";
-    }
+      sourceId,
 
+      source:
+        source.name,
+
+      category:
+        source.category,
+
+      topic:
+        getTopicCategory(title),
+
+      title:
+        cleanText(title),
+
+      description:
+        cleanText(description),
+
+      url:
+        candidate.url,
+
+      image:
+        image || "",
+
+      date:
+        formatDate(date),
+
+      publishedAt:
+        date.toISOString()
+
+    };
 
     return {
       status: "ok",
-
-      item: {
-        source:
-          source.name,
-
-        sourceId:
-          source.id,
-
-        category:
-          source.category,
-
-        title,
-
-        description,
-
-        url:
-          normalizeUrl(
-            url
-          ),
-
-        image,
-
-        date,
-
-        publishedAt:
-          publishedAt ||
-          `${date}T00:00:00Z`
-      }
+      item
     };
 
-  } catch {
+  } catch (error) {
+
     return {
-      status: "failed"
+      status: "failed",
+      error:
+        error?.message ||
+        String(error)
     };
   }
 }
 
 
-// ============================================================
-// SOURCE PROCESSING
-// ============================================================
+// ======================================================
+// DOMCLICK SPECIAL PARSER
+// ======================================================
 
-async function processSource(
-  source,
-  limit,
-  days
-) {
+async function processDomclick(days) {
+
+  const diagnostics = {
+    candidates: 0,
+    recentCandidates: 0,
+    rejected: 0,
+    failed: 0,
+    attempts: []
+  };
+
   let candidates = [];
 
+  // ----------------------------------------------------
+  // ATTEMPT 1 — MAIN PAGE
+  // ----------------------------------------------------
 
   try {
-    if (
-      source.type === "n1"
-    ) {
-      candidates =
-        await fetchN1List(
-          source
-        );
-    }
 
+    const response =
+      await fetchText(
+        SOURCES.domclick.listUrl,
+        {
+          referer:
+            "https://domclick.ru/"
+        }
+      );
 
-    if (
-      source.type === "krasdom"
-    ) {
-      candidates =
-        await fetchKrasdomList(
-          source
-        );
-    }
+    const links =
+      extractDomclickLinks(
+        response.text
+      );
 
+    candidates.push(...links);
 
-    if (
-      source.type === "domclick"
-    ) {
-      candidates =
-        await fetchDomclickList(
-          source
-        );
-    }
-
-
-    if (
-      source.type === "domrf"
-    ) {
-      candidates =
-        await fetchDomrfList(
-          source
-        );
-    }
+    diagnostics.attempts.push({
+      method: "main",
+      status: "ok",
+      candidates: links.length
+    });
 
   } catch (error) {
-    return {
-      items: [],
 
-      diagnostics: {
-        id:
-          source.id,
-
-        name:
-          source.name,
-
-        count: 0,
-
-        candidates: 0,
-
-        recentCandidates: 0,
-
-        rejected: 0,
-
-        failed: 1,
-
-        error:
-          String(
-            error?.message ||
-            error
-          )
-      }
-    };
+    diagnostics.attempts.push({
+      method: "main",
+      status: "failed",
+      error:
+        error?.message ||
+        String(error),
+      httpStatus:
+        error?.status || null
+    });
   }
 
 
-  const prepared =
-    candidates.filter(
-      candidate => {
-        if (
-          !candidate.date
-        ) {
-          return true;
-        }
+  // ----------------------------------------------------
+  // ATTEMPT 2 — ALTERNATIVE JOURNAL URL
+  // ----------------------------------------------------
 
+  const alternativeUrls = [
+    "https://blog.domclick.ru/",
+    "https://blog.domclick.ru/novosti/",
+    "https://blog.domclick.ru/novosti?page=1"
+  ];
 
-        if (
-          isFutureDate(
-            candidate.date
-          )
-        ) {
-          return false;
-        }
+  for (const url of alternativeUrls) {
 
+    if (candidates.length >= 10) {
+      break;
+    }
 
-        return isWithinDays(
-          candidate.date,
-          days
+    try {
+
+      const response =
+        await fetchText(
+          url,
+          {
+            referer:
+              "https://blog.domclick.ru/"
+          }
         );
-      }
-    );
 
+      const links =
+        extractDomclickLinks(
+          response.text
+        );
+
+      candidates.push(...links);
+
+      diagnostics.attempts.push({
+        method: "alternative",
+        url,
+        status: "ok",
+        candidates: links.length
+      });
+
+    } catch (error) {
+
+      diagnostics.attempts.push({
+        method: "alternative",
+        url,
+        status: "failed",
+        error:
+          error?.message ||
+          String(error),
+        httpStatus:
+          error?.status || null
+      });
+    }
+  }
+
+
+  // ----------------------------------------------------
+  // UNIQUE
+  // ----------------------------------------------------
+
+  const unique =
+    new Map();
+
+  for (const candidate of candidates) {
+
+    if (
+      !isDomclickArticleUrl(
+        candidate.url
+      )
+    ) {
+      continue;
+    }
+
+    unique.set(
+      candidate.url,
+      candidate
+    );
+  }
+
+  candidates =
+    Array.from(unique.values());
+
+  diagnostics.candidates =
+    candidates.length;
+
+
+  // ----------------------------------------------------
+  // PARSE OFFICIAL ARTICLES
+  // ----------------------------------------------------
 
   const items = [];
 
-  let failed = 0;
-  let rejected = 0;
+  for (const candidate of candidates.slice(0, 30)) {
 
-
-  const batchSize = 5;
-
-
-  for (
-    let i = 0;
-    i < prepared.length;
-    i += batchSize
-  ) {
-    const batch =
-      prepared.slice(
-        i,
-        i + batchSize
+    const result =
+      await parseArticle(
+        "domclick",
+        candidate,
+        days
       );
 
+    if (result.status === "ok") {
 
-    const results =
-      await Promise.all(
-        batch.map(
-          candidate =>
-            parseArticle(
-              source,
-              candidate
-            )
-        )
-      );
-
-
-    for (
-      const result of results
-    ) {
-      if (
-        !result
-      ) {
-        failed++;
-        continue;
-      }
-
-
-      if (
-        result.status ===
-        "failed"
-      ) {
-        failed++;
-        continue;
-      }
-
-
-      if (
-        result.status ===
-        "rejected"
-      ) {
-        rejected++;
-        continue;
-      }
-
-
-      const item =
-        result.item;
-
-
-      if (
-        !item
-      ) {
-        failed++;
-        continue;
-      }
-
-
-      if (
-        isFutureDate(
-          item.date
-        )
-      ) {
-        rejected++;
-        continue;
-      }
-
-
-      if (
-        !isWithinDays(
-          item.date,
-          days
-        )
-      ) {
-        rejected++;
-        continue;
-      }
-
+      diagnostics.recentCandidates++;
 
       items.push(
-        item
+        result.item
       );
-    }
 
-
-    if (
-      items.length >=
-      Math.max(
-        limit,
-        10
-      )
+    } else if (
+      result.status === "rejected"
     ) {
-      break;
+
+      diagnostics.rejected++;
+
+    } else {
+
+      diagnostics.failed++;
     }
   }
 
 
+  // ----------------------------------------------------
+  // SEARCH FALLBACK
+  // ----------------------------------------------------
+
+  if (
+    items.length === 0
+  ) {
+
+    try {
+
+      const searchCandidates =
+        await fetchDomclickSearch();
+
+      diagnostics.attempts.push({
+        method: "google-search",
+        status: "ok",
+        candidates:
+          searchCandidates.length
+      });
+
+      for (
+        const candidate
+        of searchCandidates.slice(0, 20)
+      ) {
+
+        const result =
+          await parseArticle(
+            "domclick",
+            candidate,
+            days
+          );
+
+        if (
+          result.status === "ok"
+        ) {
+
+          items.push(
+            result.item
+          );
+
+        } else if (
+          result.status === "rejected"
+        ) {
+
+          diagnostics.rejected++;
+
+        } else {
+
+          diagnostics.failed++;
+        }
+      }
+
+    } catch (error) {
+
+      diagnostics.attempts.push({
+        method: "google-search",
+        status: "failed",
+        error:
+          error?.message ||
+          String(error)
+      });
+    }
+  }
+
+
+  // ----------------------------------------------------
+  // SORT
+  // ----------------------------------------------------
+
   items.sort(
     (a, b) =>
-      String(
-        b.date
-      ).localeCompare(
-        String(
-          a.date
-        )
-      )
+      new Date(b.publishedAt) -
+      new Date(a.publishedAt)
   );
 
 
-  const finalItems =
-    items.slice(
-      0,
-      limit
-    );
-
-
   return {
-    items:
-      finalItems,
-
-    diagnostics: {
-      id:
-        source.id,
-
-      name:
-        source.name,
-
-      count:
-        finalItems.length,
-
-      candidates:
-        candidates.length,
-
-      recentCandidates:
-        prepared.length,
-
-      rejected,
-
-      failed
-    }
+    items,
+    diagnostics
   };
 }
 
 
-// ============================================================
-// DUPLICATES
-// ============================================================
+// ======================================================
+// GENERIC SOURCE PROCESSOR
+// ======================================================
 
-function removeDuplicates(
-  items
+async function processSource(
+  sourceId,
+  days
 ) {
-  const usedUrls =
-    new Set();
 
-  const usedTitles =
-    new Set();
+  const source =
+    SOURCES[sourceId];
+
+  const diagnostics = {
+    candidates: 0,
+    recentCandidates: 0,
+    rejected: 0,
+    failed: 0
+  };
+
+  try {
+
+    const response =
+      await fetchText(
+        source.listUrl,
+        {
+          referer:
+            source.listUrl
+        }
+      );
+
+    let candidates = [];
+
+    switch (source.type) {
+
+      case "n1":
+        candidates =
+          extractN1Links(
+            response.text,
+            sourceId
+          );
+        break;
+
+      case "krasdom":
+        candidates =
+          extractKrasdomLinks(
+            response.text
+          );
+        break;
+
+      case "domrf":
+        candidates =
+          extractDomrfLinks(
+            response.text
+          );
+        break;
+
+      default:
+        candidates = [];
+    }
+
+    diagnostics.candidates =
+      candidates.length;
+
+    const items = [];
+
+    for (
+      const candidate
+      of candidates.slice(0, 50)
+    ) {
+
+      const result =
+        await parseArticle(
+          sourceId,
+          candidate,
+          days
+        );
+
+      if (
+        result.status === "ok"
+      ) {
+
+        diagnostics.recentCandidates++;
+
+        items.push(
+          result.item
+        );
+
+      } else if (
+        result.status === "rejected"
+      ) {
+
+        diagnostics.rejected++;
+
+      } else {
+
+        diagnostics.failed++;
+      }
+    }
+
+    items.sort(
+      (a, b) =>
+        new Date(b.publishedAt) -
+        new Date(a.publishedAt)
+    );
+
+    return {
+      items,
+      diagnostics
+    };
+
+  } catch (error) {
+
+    diagnostics.failed++;
+
+    return {
+      items: [],
+      diagnostics: {
+        ...diagnostics,
+        error:
+          error?.message ||
+          String(error),
+        httpStatus:
+          error?.status || null
+      }
+    };
+  }
+}
+
+
+// ======================================================
+// DUPLICATES
+// ======================================================
+
+function removeDuplicates(items) {
 
   const result = [];
 
+  const seenUrls =
+    new Set();
 
-  for (
-    const item of items
-  ) {
+  const seenTitles =
+    new Set();
+
+  for (const item of items) {
+
     const url =
-      normalizeUrl(
-        item.url
-      );
-
+      stripQuery(item.url);
 
     const title =
-      normalizeTitle(
-        item.title
-      );
-
+      normalizeText(item.title);
 
     if (
-      url &&
-      usedUrls.has(
-        url
-      )
+      seenUrls.has(url)
     ) {
       continue;
     }
 
-
     if (
-      title &&
-      usedTitles.has(
-        title
-      )
+      seenTitles.has(title)
     ) {
       continue;
     }
 
+    seenUrls.add(url);
+    seenTitles.add(title);
 
-    if (url) {
-      usedUrls.add(
-        url
-      );
-    }
-
-
-    if (title) {
-      usedTitles.add(
-        title
-      );
-    }
-
-
-    result.push(
-      item
-    );
+    result.push(item);
   }
-
 
   return result;
 }
 
 
-// ============================================================
-// CATEGORY
-// ============================================================
+// ======================================================
+// NEAR DUPLICATES
+// ======================================================
 
-function matchesCategory(
-  item,
-  category
-) {
-  if (
-    !category ||
-    category === "all"
-  ) {
-    return true;
-  }
+function titleTokens(title) {
 
-
-  if (
-    category ===
-    "krasnodar"
-  ) {
-    return (
-      item.category ===
-      "krasnodar"
-    );
-  }
-
-
-  if (
-    category ===
-    "rostov"
-  ) {
-    return (
-      item.category ===
-      "rostov"
-    );
-  }
-
-
-  const topic =
-    getTopicCategory(
-      item.title
-    );
-
-
-  if (
-    category ===
-    "mortgage"
-  ) {
-    return (
-      topic ===
-      "mortgage"
-    );
-  }
-
-
-  if (
-    category ===
-    "newbuildings"
-  ) {
-    return (
-      topic ===
-      "newbuildings"
-    );
-  }
-
-
-  if (
-    category ===
-    "laws"
-  ) {
-    return (
-      topic ===
-      "laws"
-    );
-  }
-
-
-  if (
-    category ===
-    "realty"
-  ) {
-    return (
-      topic ===
-      "realty"
-    );
-  }
-
-
-  return true;
+  return normalizeText(title)
+    .split(" ")
+    .filter(word => word.length >= 4);
 }
 
 
-// ============================================================
-// HANDLER
-// ============================================================
+function titleSimilarity(a, b) {
 
-module.exports =
-  async function handler(
-    req,
-    res
+  const aa =
+    new Set(titleTokens(a));
+
+  const bb =
+    new Set(titleTokens(b));
+
+  if (!aa.size || !bb.size) {
+    return 0;
+  }
+
+  let intersection = 0;
+
+  for (const word of aa) {
+
+    if (bb.has(word)) {
+      intersection++;
+    }
+  }
+
+  const union =
+    new Set([
+      ...aa,
+      ...bb
+    ]).size;
+
+  return intersection / union;
+}
+
+
+function removeNearDuplicates(items) {
+
+  const result = [];
+
+  for (const item of items) {
+
+    let duplicate = false;
+
+    for (const existing of result) {
+
+      const similarity =
+        titleSimilarity(
+          item.title,
+          existing.title
+        );
+
+      if (
+        similarity >= 0.82
+      ) {
+
+        duplicate = true;
+        break;
+      }
+    }
+
+    if (!duplicate) {
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
+
+// ======================================================
+// BALANCE SOURCES
+// ======================================================
+
+function balanceSources(items, limit) {
+
+  const sourceGroups =
+    new Map();
+
+  for (const item of items) {
+
+    if (!sourceGroups.has(item.sourceId)) {
+      sourceGroups.set(
+        item.sourceId,
+        []
+      );
+    }
+
+    sourceGroups
+      .get(item.sourceId)
+      .push(item);
+  }
+
+  const result = [];
+
+  const groups =
+    Array.from(
+      sourceGroups.values()
+    );
+
+  let index = 0;
+
+  while (
+    result.length < limit &&
+    groups.some(
+      group => group.length > 0
+    )
   ) {
-    try {
-      const category =
-        String(
-          req.query?.category ||
-          "all"
-        ).toLowerCase();
+
+    const group =
+      groups[index % groups.length];
+
+    if (
+      group &&
+      group.length > 0
+    ) {
+
+      result.push(
+        group.shift()
+      );
+    }
+
+    index++;
+  }
+
+  return result;
+}
 
 
-      const limit =
-        Math.min(
-          Math.max(
-            Number(
-              req.query?.limit ||
-              15
-            ),
-            1
+// ======================================================
+// MAIN
+// ======================================================
+
+export default async function handler(
+  req,
+  res
+) {
+
+  try {
+
+    const url =
+      new URL(
+        req.url,
+        "https://urban-estate-news-test.vercel.app"
+      );
+
+    const requestedCategory =
+      url.searchParams.get(
+        "category"
+      ) || "all";
+
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            url.searchParams.get(
+              "limit"
+            ) || DEFAULT_LIMIT
           ),
-          50
-        );
+          1
+        ),
+        50
+      );
 
-
-      const days =
-        Math.min(
-          Math.max(
-            Number(
-              req.query?.days ||
-              7
-            ),
-            1
+    const days =
+      Math.min(
+        Math.max(
+          Number(
+            url.searchParams.get(
+              "days"
+            ) || DEFAULT_DAYS
           ),
-          30
-        );
+          1
+        ),
+        30
+      );
 
 
-      const sources =
-        Object.values(
-          SOURCE_CONFIG
-        );
+    // --------------------------------------------------
+    // SOURCE PROCESSING
+    // --------------------------------------------------
 
+    const sourceIds = [
+      "161ru",
+      "93ru",
+      "krasdom",
+      "domrf",
+      "domclick"
+    ];
 
-      let selectedSources =
-        sources;
+    const results =
+      await Promise.all(
+        sourceIds.map(
+          sourceId => {
 
+            if (
+              sourceId === "domclick"
+            ) {
 
-      if (
-        category ===
-        "krasnodar"
-      ) {
-        selectedSources =
-          sources.filter(
-            source =>
-              source.category ===
-              "krasnodar"
-          );
-      }
-
-
-      if (
-        category ===
-        "rostov"
-      ) {
-        selectedSources =
-          sources.filter(
-            source =>
-              source.category ===
-              "rostov"
-          );
-      }
-
-
-      const results =
-        await Promise.all(
-          selectedSources.map(
-            source =>
-              processSource(
-                source,
-                limit,
+              return processDomclick(
                 days
-              )
-          )
-        );
+              );
+            }
+
+            return processSource(
+              sourceId,
+              days
+            );
+          }
+        )
+      );
 
 
-      let allItems = [];
+    // --------------------------------------------------
+    // COLLECT
+    // --------------------------------------------------
 
-      const diagnostics =
-        [];
+    let allItems = [];
+
+    const diagnostics = {};
 
 
-      for (
-        const result of results
-      ) {
-        allItems =
-          allItems.concat(
-            result.items
-          );
+    for (
+      let i = 0;
+      i < sourceIds.length;
+      i++
+    ) {
 
-        diagnostics.push(
-          result.diagnostics
-        );
-      }
+      const sourceId =
+        sourceIds[i];
 
+      const result =
+        results[i];
+
+      allItems.push(
+        ...result.items
+      );
+
+      diagnostics[sourceId] =
+        result.diagnostics;
+    }
+
+
+    // --------------------------------------------------
+    // REMOVE DUPLICATES
+    // --------------------------------------------------
+
+    allItems =
+      removeDuplicates(
+        allItems
+      );
+
+    allItems =
+      removeNearDuplicates(
+        allItems
+      );
+
+
+    // --------------------------------------------------
+    // CATEGORY
+    // --------------------------------------------------
+
+    if (
+      requestedCategory &&
+      requestedCategory !== "all"
+    ) {
 
       allItems =
         allItems.filter(
           item =>
-            matchesCategory(
-              item,
-              category
-            )
+            item.topic ===
+            requestedCategory ||
+            item.category ===
+            requestedCategory
         );
-
-
-      allItems =
-        removeDuplicates(
-          allItems
-        );
-
-
-      allItems.sort(
-        (a, b) => {
-          const dateA =
-            new Date(
-              a.publishedAt ||
-              `${a.date}T00:00:00Z`
-            ).getTime();
-
-
-          const dateB =
-            new Date(
-              b.publishedAt ||
-              `${b.date}T00:00:00Z`
-            ).getTime();
-
-
-          return (
-            dateB -
-            dateA
-          );
-        }
-      );
-
-
-      allItems =
-        allItems.slice(
-          0,
-          limit
-        );
-
-
-      res.setHeader(
-        "Cache-Control",
-        "s-maxage=300, stale-while-revalidate=600"
-      );
-
-
-      res.status(
-        200
-      ).json({
-        ok: true,
-
-        category,
-
-        count:
-          allItems.length,
-
-        items:
-          allItems,
-
-        sources:
-          diagnostics
-      });
-
-
-    } catch (error) {
-      res.status(
-        500
-      ).json({
-        ok: false,
-
-        error:
-          String(
-            error?.message ||
-            error
-          )
-      });
     }
-  };
+
+
+    // --------------------------------------------------
+    // SORT
+    // --------------------------------------------------
+
+    allItems.sort(
+      (a, b) =>
+        new Date(b.publishedAt) -
+        new Date(a.publishedAt)
+    );
+
+
+    // --------------------------------------------------
+    // BALANCE SOURCES
+    // --------------------------------------------------
+
+    const balanced =
+      balanceSources(
+        allItems,
+        limit
+      );
+
+
+    // --------------------------------------------------
+    // RESPONSE
+    // --------------------------------------------------
+
+    res.setHeader(
+      "Cache-Control",
+      "s-maxage=300, stale-while-revalidate=600"
+    );
+
+    res.setHeader(
+      "Access-Control-Allow-Origin",
+      "*"
+    );
+
+    res.status(200).json({
+
+      ok: true,
+
+      category:
+        requestedCategory,
+
+      count:
+        balanced.length,
+
+      items:
+        balanced,
+
+      sources:
+        diagnostics
+
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+
+      ok: false,
+
+      error:
+        error?.message ||
+        String(error)
+
+    });
+  }
+}
