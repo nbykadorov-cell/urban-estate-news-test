@@ -3,10 +3,6 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "no-store");
 
-  // ---------------------------------------------------------
-  // Настройки
-  // ---------------------------------------------------------
-
   const SOURCE_ID = "161ru";
   const SOURCE_NAME = "161.RU";
   const SOURCE_URL = "https://161.ru";
@@ -14,14 +10,14 @@ module.exports = async (req, res) => {
 
   const DEFAULT_LIMIT = 15;
   const MAX_LIMIT = 20;
+
   const DEFAULT_DAYS = 7;
   const MAX_DAYS = 30;
 
-  // Сколько статей одновременно загружаем
   const CONCURRENCY = 3;
 
   // ---------------------------------------------------------
-  // Вспомогательные функции
+  // TEXT
   // ---------------------------------------------------------
 
   function cleanText(value) {
@@ -34,6 +30,7 @@ module.exports = async (req, res) => {
       .replace(/&amp;/gi, "&")
       .replace(/&quot;/gi, '"')
       .replace(/&#39;/gi, "'")
+      .replace(/&#x27;/gi, "'")
       .replace(/&lt;/gi, "<")
       .replace(/&gt;/gi, ">")
       .replace(/\s+/g, " ")
@@ -54,10 +51,14 @@ module.exports = async (req, res) => {
       .trim();
   }
 
+  // ---------------------------------------------------------
+  // URL
+  // ---------------------------------------------------------
+
   function absoluteUrl(url) {
     if (!url) return "";
 
-    url = decodeHtml(url.trim());
+    url = decodeHtml(String(url).trim());
 
     if (url.startsWith("//")) {
       return "https:" + url;
@@ -75,7 +76,6 @@ module.exports = async (req, res) => {
 
     url = absoluteUrl(url);
 
-    // Убираем рекламные / партнерские query-параметры
     try {
       const parsed = new URL(url);
 
@@ -83,10 +83,14 @@ module.exports = async (req, res) => {
         parsed.origin +
         parsed.pathname
       );
-    } catch (e) {
+    } catch (error) {
       return url.split("?")[0];
     }
   }
+
+  // ---------------------------------------------------------
+  // DATE
+  // ---------------------------------------------------------
 
   function extractDateFromUrl(url) {
     if (!url) return null;
@@ -97,61 +101,46 @@ module.exports = async (req, res) => {
 
     if (!match) return null;
 
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-
-    const date = new Date(
-      Date.UTC(year, month - 1, day)
-    );
-
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-
     return (
-      String(year) +
+      match[1] +
       "-" +
-      String(month).padStart(2, "0") +
+      match[2] +
       "-" +
-      String(day).padStart(2, "0")
+      match[3]
     );
   }
 
-  function extractMeta(html, attribute, value) {
+  // ---------------------------------------------------------
+  // META
+  //
+  // Здесь специально используем две простые функции,
+  // без сложной динамической RegExp-конструкции.
+  // ---------------------------------------------------------
+
+  function extractMetaByName(html, name) {
     if (!html) return "";
 
-    const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    // Вариант:
-    // <meta property="og:image" content="...">
-    let re = new RegExp(
-      "<meta[^>]+" +
-      attribute +
-      '=["\\']' +
-      escapedValue +
-      '["\\'][^>]+content=["\\']([^"\\']+)["\\']',
+    const re1 = new RegExp(
+      '<meta[^>]+name=["\']' +
+      name +
+      '["\'][^>]+content=["\']([^"\']*)["\']',
       "i"
     );
 
-    let match = html.match(re);
+    let match = html.match(re1);
 
     if (match) {
       return decodeHtml(match[1]);
     }
 
-    // Обратный порядок:
-    // <meta content="..." property="og:image">
-    re = new RegExp(
-      "<meta[^>]+content=["\\']([^"\\']+)["\\'][^>]+" +
-      attribute +
-      '=["\\']' +
-      escapedValue +
-      '["\\']',
+    const re2 = new RegExp(
+      '<meta[^>]+content=["\']([^"\']*)["\'][^>]+name=["\']' +
+      name +
+      '["\']',
       "i"
     );
 
-    match = html.match(re);
+    match = html.match(re2);
 
     if (match) {
       return decodeHtml(match[1]);
@@ -159,6 +148,42 @@ module.exports = async (req, res) => {
 
     return "";
   }
+
+  function extractMetaByProperty(html, property) {
+    if (!html) return "";
+
+    const re1 = new RegExp(
+      '<meta[^>]+property=["\']' +
+      property +
+      '["\'][^>]+content=["\']([^"\']*)["\']',
+      "i"
+    );
+
+    let match = html.match(re1);
+
+    if (match) {
+      return decodeHtml(match[1]);
+    }
+
+    const re2 = new RegExp(
+      '<meta[^>]+content=["\']([^"\']*)["\'][^>]+property=["\']' +
+      property +
+      '["\']',
+      "i"
+    );
+
+    match = html.match(re2);
+
+    if (match) {
+      return decodeHtml(match[1]);
+    }
+
+    return "";
+  }
+
+  // ---------------------------------------------------------
+  // TITLE
+  // ---------------------------------------------------------
 
   function extractTitle(html) {
     if (!html) return "";
@@ -171,62 +196,72 @@ module.exports = async (req, res) => {
 
     let title = cleanText(match[1]);
 
-    // У 161.RU title имеет примерно такой вид:
-    //
-    // Заголовок - 6 октября 2026 | 161.ру
-    //
-    // Убираем служебную часть.
     title = title
-      .replace(/\s*-\s*\d{1,2}\s+\S+\s+\d{4}\s*\|\s*161\.ру\s*$/i, "")
+      .replace(
+        /\s*-\s*\d{1,2}\s+\S+\s+\d{4}\s*\|\s*161\.ру\s*$/i,
+        ""
+      )
       .trim();
 
     return title;
   }
 
+  // ---------------------------------------------------------
+  // DESCRIPTION
+  // ---------------------------------------------------------
+
   function extractDescription(html) {
     if (!html) return "";
 
-    let value = extractMeta(
-      html,
-      "name",
-      "description"
-    );
-
-    if (!value) {
-      value = extractMeta(
+    let description =
+      extractMetaByName(
         html,
-        "property",
-        "og:description"
+        "description"
       );
+
+    if (!description) {
+      description =
+        extractMetaByProperty(
+          html,
+          "og:description"
+        );
     }
 
-    return cleanText(value);
+    return cleanText(description);
   }
+
+  // ---------------------------------------------------------
+  // IMAGE
+  // ---------------------------------------------------------
 
   function extractImage(html) {
     if (!html) return "";
 
-    let value = extractMeta(
-      html,
-      "property",
-      "og:image"
-    );
-
-    if (!value) {
-      value = extractMeta(
+    let image =
+      extractMetaByProperty(
         html,
-        "name",
-        "twitter:image"
+        "og:image"
       );
+
+    if (!image) {
+      image =
+        extractMetaByName(
+          html,
+          "twitter:image"
+        );
     }
 
-    return absoluteUrl(value);
+    return absoluteUrl(image);
   }
+
+  // ---------------------------------------------------------
+  // CANONICAL
+  // ---------------------------------------------------------
 
   function extractCanonical(html) {
     if (!html) return "";
 
-    const match = html.match(
+    let match = html.match(
       /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
     );
 
@@ -234,32 +269,34 @@ module.exports = async (req, res) => {
       return absoluteUrl(match[1]);
     }
 
-    // Обратный порядок атрибутов
-    const reverseMatch = html.match(
+    match = html.match(
       /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i
     );
 
-    if (reverseMatch) {
-      return absoluteUrl(reverseMatch[1]);
+    if (match) {
+      return absoluteUrl(match[1]);
     }
 
     return "";
   }
 
   // ---------------------------------------------------------
-  // Получение списка статей
+  // FETCH LIST
   // ---------------------------------------------------------
 
   async function fetchArticleList() {
-    const response = await fetch(LIST_URL, {
-      method: "GET",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
-        "Accept":
-          "text/html,application/xhtml+xml"
+    const response = await fetch(
+      LIST_URL,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
+          "Accept":
+            "text/html,application/xhtml+xml"
+        }
       }
-    });
+    );
 
     const html = await response.text();
 
@@ -278,9 +315,10 @@ module.exports = async (req, res) => {
 
     let match;
 
-    while ((match = linkRe.exec(html)) !== null) {
+    while (
+      (match = linkRe.exec(html)) !== null
+    ) {
       let url = match[1];
-
       let title = cleanText(match[2]);
 
       url = normalizeArticleUrl(url);
@@ -289,7 +327,6 @@ module.exports = async (req, res) => {
         continue;
       }
 
-      // Нас интересуют только статьи раздела недвижимости
       if (
         !url.match(
           /^https:\/\/161\.ru\/text\/realty\/\d{4}\/\d{2}\/\d{2}\/\d+\//
@@ -298,27 +335,25 @@ module.exports = async (req, res) => {
         continue;
       }
 
-      // Защита от повторов
       if (seen.has(url)) {
         continue;
       }
 
-      // Слишком короткие ссылки не являются статьями
       if (title.length < 20) {
         continue;
       }
 
       seen.add(url);
 
-      const date = extractDateFromUrl(url);
-
       articles.push({
         url: url,
         title: title,
-        date: date
+        date: extractDateFromUrl(url)
       });
 
-      if (articles.length >= MAX_LIMIT) {
+      if (
+        articles.length >= MAX_LIMIT
+      ) {
         break;
       }
     }
@@ -327,33 +362,40 @@ module.exports = async (req, res) => {
   }
 
   // ---------------------------------------------------------
-  // Получение отдельной статьи
+  // FETCH ARTICLE
   // ---------------------------------------------------------
 
   async function fetchArticle(article) {
     try {
-      const response = await fetch(article.url, {
-        method: "GET",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
-          "Accept":
-            "text/html,application/xhtml+xml"
+      const response = await fetch(
+        article.url,
+        {
+          method: "GET",
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
+            "Accept":
+              "text/html,application/xhtml+xml"
+          }
         }
-      });
+      );
 
-      const html = await response.text();
+      const html =
+        await response.text();
 
       if (!response.ok) {
         return {
-          ...article,
           ok: false,
+          url: article.url,
           error:
-            "HTTP " + response.status
+            "HTTP " +
+            response.status
         };
       }
 
-      const pageTitle = extractTitle(html);
+      const title =
+        extractTitle(html) ||
+        article.title;
 
       const description =
         extractDescription(html);
@@ -373,40 +415,41 @@ module.exports = async (req, res) => {
         ok: true,
 
         source: SOURCE_NAME,
+
         sourceId: SOURCE_ID,
 
         category: "rostov",
 
-        title:
-          pageTitle ||
-          article.title,
+        title: title,
 
         description:
-          description ||
-          "",
+          description || "",
 
         url: finalUrl,
 
         image:
-          image ||
-          "",
+          image || "",
 
         date:
           article.date,
 
         publishedAt:
           article.date
-            ? article.date + "T00:00:00Z"
+            ? article.date +
+              "T00:00:00Z"
             : null
       };
 
     } catch (error) {
 
       return {
-        ...article,
         ok: false,
+
+        url: article.url,
+
         error:
-          error && error.message
+          error &&
+          error.message
             ? error.message
             : String(error)
       };
@@ -414,7 +457,7 @@ module.exports = async (req, res) => {
   }
 
   // ---------------------------------------------------------
-  // Параллельная обработка с ограничением
+  // CONCURRENCY
   // ---------------------------------------------------------
 
   async function processWithConcurrency(
@@ -422,138 +465,191 @@ module.exports = async (req, res) => {
     worker,
     concurrency
   ) {
-    const results = new Array(items.length);
+    const results =
+      new Array(items.length);
 
     let nextIndex = 0;
 
     async function runner() {
-      while (true) {
-        const index = nextIndex++;
 
-        if (index >= items.length) {
+      while (true) {
+
+        const index =
+          nextIndex++;
+
+        if (
+          index >=
+          items.length
+        ) {
           return;
         }
 
         results[index] =
-          await worker(items[index]);
+          await worker(
+            items[index]
+          );
       }
     }
 
     const runners = [];
 
-    const count = Math.min(
-      concurrency,
-      items.length
-    );
+    const count =
+      Math.min(
+        concurrency,
+        items.length
+      );
 
-    for (let i = 0; i < count; i++) {
-      runners.push(runner());
+    for (
+      let i = 0;
+      i < count;
+      i++
+    ) {
+      runners.push(
+        runner()
+      );
     }
 
-    await Promise.all(runners);
+    await Promise.all(
+      runners
+    );
 
     return results;
   }
 
   // ---------------------------------------------------------
-  // Параметры запроса
+  // QUERY PARAMETERS
   // ---------------------------------------------------------
 
   let limit =
-    Number(req.query && req.query.limit);
+    Number(
+      req.query &&
+      req.query.limit
+    );
 
-  if (!Number.isFinite(limit) || limit <= 0) {
-    limit = DEFAULT_LIMIT;
+  if (
+    !Number.isFinite(limit) ||
+    limit <= 0
+  ) {
+    limit =
+      DEFAULT_LIMIT;
   }
 
-  limit = Math.min(
-    Math.floor(limit),
-    MAX_LIMIT
-  );
+  limit =
+    Math.min(
+      Math.floor(limit),
+      MAX_LIMIT
+    );
 
   let days =
-    Number(req.query && req.query.days);
+    Number(
+      req.query &&
+      req.query.days
+    );
 
-  if (!Number.isFinite(days) || days <= 0) {
-    days = DEFAULT_DAYS;
+  if (
+    !Number.isFinite(days) ||
+    days <= 0
+  ) {
+    days =
+      DEFAULT_DAYS;
   }
 
-  days = Math.min(
-    Math.floor(days),
-    MAX_DAYS
-  );
+  days =
+    Math.min(
+      Math.floor(days),
+      MAX_DAYS
+    );
 
   const category =
-    req.query && req.query.category
-      ? String(req.query.category)
-          .toLowerCase()
+    req.query &&
+    req.query.category
+      ? String(
+          req.query.category
+        ).toLowerCase()
       : "rostov";
 
   // ---------------------------------------------------------
-  // Основной процесс
+  // MAIN
   // ---------------------------------------------------------
 
   try {
 
-    // Пока поддерживаем только Ростов
     if (
       category !== "rostov" &&
       category !== "all"
     ) {
-      return res.status(200).json({
-        ok: true,
-        category: category,
-        count: 0,
-        items: [],
-        sources: [
-          {
-            id: SOURCE_ID,
-            name: SOURCE_NAME,
-            count: 0,
-            message:
-              "На данном этапе источник поддерживает только категорию rostov."
-          }
-        ]
-      });
+      return res
+        .status(200)
+        .json({
+          ok: true,
+
+          category: category,
+
+          count: 0,
+
+          items: [],
+
+          sources: [
+            {
+              id: SOURCE_ID,
+
+              name:
+                SOURCE_NAME,
+
+              count: 0,
+
+              message:
+                "161.RU на данном этапе поддерживает только категорию rostov."
+            }
+          ]
+        });
     }
 
-    // 1. Получаем список статей
+    // Получаем список
     const candidates =
       await fetchArticleList();
 
-    // 2. Фильтруем по дате
+    // Дата отсечения
     const now =
       new Date();
 
     const cutoff =
       new Date(
         now.getTime() -
-        days * 24 * 60 * 60 * 1000
+        days *
+          24 *
+          60 *
+          60 *
+          1000
       );
 
+    // Фильтр по дате
     const recentCandidates =
-      candidates.filter((article) => {
+      candidates.filter(
+        (article) => {
 
-        if (!article.date) {
-          return false;
+          if (!article.date) {
+            return false;
+          }
+
+          const date =
+            new Date(
+              article.date +
+              "T23:59:59Z"
+            );
+
+          return date >= cutoff;
         }
+      );
 
-        const date =
-          new Date(
-            article.date + "T23:59:59Z"
-          );
-
-        return date >= cutoff;
-      });
-
-    // 3. Ограничиваем количество
+    // Выбираем нужное количество
     const selected =
       recentCandidates.slice(
         0,
         limit
       );
 
-    // 4. Загружаем страницы статей
+    // Загружаем статьи
     const results =
       await processWithConcurrency(
         selected,
@@ -561,7 +657,7 @@ module.exports = async (req, res) => {
         CONCURRENCY
       );
 
-    // 5. Оставляем успешно обработанные
+    // Только успешные
     const items =
       results
         .filter(
@@ -569,100 +665,109 @@ module.exports = async (req, res) => {
             item &&
             item.ok === true
         )
-        .map((item) => {
+        .map(
+          (item) => {
 
-          const {
-            ok,
-            ...article
-          } = item;
+            const copy = {
+              ...item
+            };
 
-          return article;
-        });
+            delete copy.ok;
 
-    // 6. Сортировка от новых к старым
-    items.sort((a, b) => {
+            return copy;
+          }
+        );
 
-      const dateA =
-        a.publishedAt || "";
+    // Сортировка
+    items.sort(
+      (a, b) => {
 
-      const dateB =
-        b.publishedAt || "";
+        const dateA =
+          a.publishedAt || "";
 
-      return dateB.localeCompare(dateA);
-    });
+        const dateB =
+          b.publishedAt || "";
 
-    // -------------------------------------------------------
-    // Ответ
-    // -------------------------------------------------------
+        return dateB.localeCompare(
+          dateA
+        );
+      }
+    );
 
-    return res.status(200).json({
+    return res
+      .status(200)
+      .json({
 
-      ok: true,
+        ok: true,
 
-      category:
-        category === "all"
-          ? "all"
-          : "rostov",
+        category:
+          category === "all"
+            ? "all"
+            : "rostov",
 
-      count:
-        items.length,
+        count:
+          items.length,
 
-      items:
+        items:
+          items,
 
-        items,
+        sources: [
 
-      sources: [
+          {
+            id:
+              SOURCE_ID,
 
-        {
-          id: SOURCE_ID,
+            name:
+              SOURCE_NAME,
 
-          name: SOURCE_NAME,
+            count:
+              items.length,
 
-          count:
-            items.length,
+            candidates:
+              candidates.length,
 
-          candidates:
-            candidates.length,
+            recentCandidates:
+              recentCandidates.length,
 
-          recentCandidates:
-            recentCandidates.length,
+            failed:
+              results.filter(
+                (item) =>
+                  item &&
+                  item.ok === false
+              ).length
+          }
 
-          failed:
-            results.filter(
-              (item) =>
-                item &&
-                item.ok === false
-            ).length
-        }
+        ]
 
-      ]
-
-    });
+      });
 
   } catch (error) {
 
-    return res.status(200).json({
+    return res
+      .status(200)
+      .json({
 
-      ok: false,
+        ok: false,
 
-      category:
-        category,
+        category:
+          category,
 
-      count: 0,
+        count: 0,
 
-      items: [],
+        items: [],
 
-      errorName:
-        error && error.name
-          ? error.name
-          : "Error",
+        errorName:
+          error &&
+          error.name
+            ? error.name
+            : "Error",
 
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
+        error:
+          error &&
+          error.message
+            ? error.message
+            : String(error)
 
-    });
-
+      });
   }
 };
