@@ -52,7 +52,7 @@ const SOURCES = {
 
 
 /* =========================================================
-   BASIC HELPERS
+   БАЗОВЫЕ ФУНКЦИИ
 ========================================================= */
 
 function cleanText(value) {
@@ -61,6 +61,8 @@ function cleanText(value) {
   return String(value)
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -79,9 +81,9 @@ function cleanTitle(value) {
   let text = cleanText(value);
 
   text = text
-    .replace(/\s*[-–—|]\s*(Новости|Журнал|Циан\.Журнал).*$/i, "")
-    .replace(/\s+Новости рынка недвижимости.*$/i, "")
-    .replace(/\s+/g, " ")
+    .replace(/^новости\s*[-—:]\s*/i, "")
+    .replace(/\s*\|\s*(161\.RU|93\.RU).*$/i, "")
+    .replace(/\s*[-—]\s*(161\.RU|93\.RU).*$/i, "")
     .trim();
 
   return text;
@@ -92,10 +94,11 @@ function cleanDescription(value) {
   let text = cleanText(value);
 
   text = text
-    .replace(/Please open Telegram to view this post/gi, "")
-    .replace(/VIEW IN TELEGRAM/gi, "")
-    .replace(/\b\d[\d\s]*views?\b/gi, "")
-    .replace(/\b\d[\d\s]*просмотров\b/gi, "")
+    .replace(/please open telegram to view this post/gi, "")
+    .replace(/view in telegram/gi, "")
+    .replace(/views?/gi, "")
+    .replace(/\s*-\s*Новости\.\s*.*?в Журнале Недвижимости\.?\s*$/i, "")
+    .replace(/\s*в Журнале Недвижимости\.?\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -103,74 +106,46 @@ function cleanDescription(value) {
 }
 
 
-/*
- * ВАЖНО:
- * Эта функция отсутствовала в предыдущей версии.
- * Именно из-за неё сейчас падали 161.RU, 93.RU,
- * КРАСДОМ, ДОМ.РФ и Яндекс.
- */
-function stripTracking(url) {
-  if (!url) return "";
-
-  try {
-    const u = new URL(url);
-
-    const removeParams = [
-      "utm_source",
-      "utm_medium",
-      "utm_campaign",
-      "utm_content",
-      "utm_term",
-      "from",
-      "from_tg",
-      "ref",
-      "source",
-      "source_index",
-      "ysclid",
-      "yclid"
-    ];
-
-    removeParams.forEach(name => {
-      u.searchParams.delete(name);
-    });
-
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-
 function normalizeUrl(url, baseUrl) {
-  if (!url) return "";
-
   try {
-    const absolute = new URL(url, baseUrl);
+    if (!url) return null;
 
-    if (!/^https?:$/i.test(absolute.protocol)) {
-      return "";
-    }
+    const absolute = new URL(url, baseUrl);
 
     absolute.hash = "";
 
-    return stripTracking(absolute.toString());
+    [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "yclid",
+      "ysclid",
+      "from",
+      "ref"
+    ].forEach(key => {
+      absolute.searchParams.delete(key);
+    });
+
+    return absolute.toString();
   } catch {
-    return "";
+    return null;
   }
 }
 
 
-function makeId(url) {
+function makeId(source, url) {
   return crypto
     .createHash("sha256")
-    .update(String(url))
+    .update(`${source}:${url}`)
     .digest("hex")
     .slice(0, 24);
 }
 
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function stripTracking(url) {
+  return normalizeUrl(url, url);
 }
 
 
@@ -196,8 +171,9 @@ async function fetchText(url, options = {}) {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36",
         "Accept":
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language":
-          "ru-RU,ru;q=0.9,en;q=0.8"
+        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.7",
+        "Cache-Control": "no-cache",
+        ...(options.headers || {})
       }
     });
 
@@ -206,8 +182,16 @@ async function fetchText(url, options = {}) {
     return {
       ok: response.ok,
       status: response.status,
-      url: response.url,
+      url: response.url || url,
       text
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      url,
+      text: "",
+      error: error.message || String(error)
     };
   } finally {
     clearTimeout(timeout);
@@ -216,84 +200,81 @@ async function fetchText(url, options = {}) {
 
 
 /* =========================================================
-   HTML META
+   HTML / META / JSON-LD
 ========================================================= */
 
-function extractMeta(html, key) {
-  const patterns = [
-    new RegExp(
-      `<meta[^>]+(?:property|name)=["']${key}["'][^>]+content=["']([^"']*)["'][^>]*>`,
+function extractMeta(html, names) {
+  for (const name of names) {
+    const re1 = new RegExp(
+      `<meta[^>]+(?:name|property)=["']${escapeRegExp(name)}["'][^>]+content=["']([^"']+)["']`,
       "i"
-    ),
-    new RegExp(
-      `<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${key}["'][^>]*>`,
+    );
+
+    const re2 = new RegExp(
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escapeRegExp(name)}["']`,
       "i"
-    )
-  ];
+    );
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
+    const m1 = html.match(re1);
+    if (m1 && m1[1]) return cleanText(m1[1]);
 
-    if (match && match[1]) {
-      return cleanText(match[1]);
-    }
+    const m2 = html.match(re2);
+    if (m2 && m2[1]) return cleanText(m2[1]);
   }
 
   return "";
 }
 
 
-function extractTitleTag(html) {
-  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-
-  return match
-    ? cleanTitle(match[1])
-    : "";
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 
-function extractCanonical(html, baseUrl) {
-  const match = html.match(
-    /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i
-  );
+function extractTitle(html) {
+  const og = extractMeta(html, [
+    "og:title",
+    "twitter:title"
+  ]);
 
-  if (!match) return "";
+  if (og) return cleanTitle(og);
 
-  return normalizeUrl(match[1], baseUrl);
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+
+  if (title) {
+    return cleanTitle(title[1]);
+  }
+
+  return "";
+}
+
+
+function extractDescription(html) {
+  const description = extractMeta(html, [
+    "description",
+    "og:description",
+    "twitter:description"
+  ]);
+
+  return cleanDescription(description);
 }
 
 
 function extractImage(html, baseUrl) {
-  const candidates = [
-    extractMeta(html, "og:image"),
-    extractMeta(html, "twitter:image")
-  ];
+  const image = extractMeta(html, [
+    "og:image",
+    "og:image:url",
+    "twitter:image"
+  ]);
 
-  for (const value of candidates) {
-    if (!value) continue;
+  if (!image) return "";
 
-    try {
-      const url = new URL(value, baseUrl).toString();
-
-      if (
-        !url.includes("telegram.org/img/emoji") &&
-        !url.includes("emoji/")
-      ) {
-        return url;
-      }
-    } catch {}
-  }
-
-  return "";
+  return normalizeUrl(image, baseUrl) || "";
 }
 
 
-/* =========================================================
-   JSON-LD
-========================================================= */
-
 function extractJsonLd(html) {
-  const blocks = [];
+  const result = [];
 
   const regex =
     /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -301,46 +282,70 @@ function extractJsonLd(html) {
   let match;
 
   while ((match = regex.exec(html))) {
-    try {
-      const parsed = JSON.parse(match[1].trim());
+    const raw = match[1]
+      .replace(/^\s*<!--/, "")
+      .replace(/-->\s*$/, "")
+      .trim();
 
-      if (Array.isArray(parsed)) {
-        blocks.push(...parsed);
-      } else {
-        blocks.push(parsed);
-      }
-    } catch {}
+    if (!raw) continue;
+
+    try {
+      result.push(JSON.parse(raw));
+    } catch {
+      try {
+        const fixed = raw
+          .replace(/,\s*}/g, "}")
+          .replace(/,\s*]/g, "]");
+
+        result.push(JSON.parse(fixed));
+      } catch {}
+    }
   }
 
-  return blocks;
+  return result;
 }
 
 
-function findArticleJsonLd(html) {
+function flattenJsonLd(value) {
+  const result = [];
+
+  function walk(node) {
+    if (!node) return;
+
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+
+    if (typeof node !== "object") return;
+
+    result.push(node);
+
+    if (node["@graph"]) walk(node["@graph"]);
+  }
+
+  walk(value);
+
+  return result;
+}
+
+
+function extractJsonLdArticle(html) {
   const blocks = extractJsonLd(html);
 
   for (const block of blocks) {
-    if (!block) continue;
+    const objects = flattenJsonLd(block);
 
-    if (
-      block["@type"] === "Article" ||
-      block["@type"] === "NewsArticle" ||
-      block["@type"] === "BlogPosting"
-    ) {
-      return block;
-    }
+    for (const obj of objects) {
+      const type = Array.isArray(obj["@type"])
+        ? obj["@type"].join(" ")
+        : String(obj["@type"] || "");
 
-    if (Array.isArray(block["@graph"])) {
-      const found = block["@graph"].find(item =>
-        item &&
-        (
-          item["@type"] === "Article" ||
-          item["@type"] === "NewsArticle" ||
-          item["@type"] === "BlogPosting"
-        )
-      );
-
-      if (found) return found;
+      if (
+        /NewsArticle|Article|BlogPosting|ReportageNewsArticle/i.test(type)
+      ) {
+        return obj;
+      }
     }
   }
 
@@ -349,8 +354,24 @@ function findArticleJsonLd(html) {
 
 
 /* =========================================================
-   DATES
+   ДАТЫ
 ========================================================= */
+
+const RU_MONTHS = {
+  января: 0,
+  февраля: 1,
+  марта: 2,
+  апреля: 3,
+  мая: 4,
+  июня: 5,
+  июля: 6,
+  августа: 7,
+  сентября: 8,
+  октября: 9,
+  ноября: 10,
+  декабря: 11
+};
+
 
 function parseDate(value) {
   if (!value) return null;
@@ -365,97 +386,872 @@ function parseDate(value) {
 }
 
 
-function extractDate(html) {
-  const article = findArticleJsonLd(html);
+function parseRussianDate(text) {
+  if (!text) return null;
 
-  if (article) {
-    const value =
-      article.datePublished ||
-      article.dateCreated ||
-      article.dateModified;
-
-    const date = parseDate(value);
-
-    if (date) return date;
-  }
-
-  const candidates = [
-    extractMeta(html, "article:published_time"),
-    extractMeta(html, "datePublished"),
-    extractMeta(html, "date"),
-    extractMeta(html, "publish-date")
-  ];
-
-  for (const value of candidates) {
-    const date = parseDate(value);
-
-    if (date) return date;
-  }
-
-  const datetimeMatch = html.match(
-    /<time[^>]+datetime=["']([^"']+)["']/i
+  const match = String(text).match(
+    /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})/i
   );
 
-  if (datetimeMatch) {
-    const date = parseDate(datetimeMatch[1]);
+  if (!match) return null;
 
-    if (date) return date;
+  const day = Number(match[1]);
+  const month = RU_MONTHS[match[2].toLowerCase()];
+  const year = Number(match[3]);
+
+  if (
+    !Number.isInteger(day) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(year)
+  ) {
+    return null;
+  }
+
+  const date = new Date(year, month, day);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+
+function extractDateFromText(html) {
+  if (!html) return null;
+
+  const clean = cleanText(html);
+
+  const russianDate = parseRussianDate(clean);
+
+  if (russianDate) return russianDate;
+
+  const numeric = clean.match(
+    /\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/
+  );
+
+  if (numeric) {
+    const day = Number(numeric[1]);
+    const month = Number(numeric[2]) - 1;
+    const year = Number(numeric[3]);
+
+    const date = new Date(year, month, day);
+
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  const iso = clean.match(
+    /\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/
+  );
+
+  if (iso) {
+    const date = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3])
+    );
+
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
   }
 
   return null;
 }
 
 
-/*
- * Для 161.RU и 93.RU дата часто находится прямо в URL:
- * /text/realty/2026/10/07/76683200
- */
-function extractDateFromNewsUrl(url) {
-  const match = url.match(
-    /\/text\/realty\/(\d{4})\/(\d{2})\/(\d{2})\/\d+/i
+function extractDateFromUrl(url) {
+  if (!url) return null;
+
+  let match = url.match(
+    /\/(20\d{2})[\/-](\d{1,2})[\/-](\d{1,2})(?:\/|$)/
   );
 
-  if (!match) return null;
+  if (match) {
+    const date = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3])
+    );
 
-  const date = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3])
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  match = url.match(
+    /[?&](?:date|published|published_at|publish_date)=(20\d{2})-(\d{1,2})-(\d{1,2})/i
   );
 
-  return Number.isNaN(date.getTime())
-    ? null
-    : date;
+  if (match) {
+    const date = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3])
+    );
+
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return null;
 }
 
 
-/*
- * ДОМ.РФ может отдавать дату в URL или странице.
- */
-function extractDateFromDomRfUrl(url) {
-  const match = url.match(
-    /\/news\/.*?(\d{4})[-/](\d{2})[-/](\d{2})/i
-  );
+function extractDate(html, url) {
+  /* JSON-LD */
 
-  if (!match) return null;
+  const article = extractJsonLdArticle(html);
 
-  const date = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3])
-  );
+  if (article) {
+    const candidates = [
+      article.datePublished,
+      article.dateCreated,
+      article.dateModified
+    ];
 
-  return Number.isNaN(date.getTime())
-    ? null
-    : date;
+    for (const value of candidates) {
+      const date = parseDate(value);
+
+      if (date) return date;
+    }
+  }
+
+  /* META */
+
+  const metaDate = extractMeta(html, [
+    "article:published_time",
+    "datePublished",
+    "date",
+    "publish-date",
+    "publication_date",
+    "article:modified_time"
+  ]);
+
+  const parsedMeta = parseDate(metaDate);
+
+  if (parsedMeta) return parsedMeta;
+
+  /* TIME */
+
+  const timeRegex =
+    /<time[^>]+datetime=["']([^"']+)["'][^>]*>/gi;
+
+  let timeMatch;
+
+  while ((timeMatch = timeRegex.exec(html))) {
+    const date = parseDate(timeMatch[1]);
+
+    if (date) return date;
+  }
+
+  /* Русская дата в тексте */
+
+  const russianDate = parseRussianDate(cleanText(html));
+
+  if (russianDate) return russianDate;
+
+  /* URL */
+
+  return extractDateFromUrl(url);
 }
 
 
 /* =========================================================
-   LINKS
+   URL ФИЛЬТРЫ
 ========================================================= */
 
-function extractAllAnchors(html, baseUrl) {
+function isAllowed161(url) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname !== "161.ru") return false;
+
+    if (!/^\/text\/realty\/\d{4}\/\d{2}\/\d{2}\/\d+/i.test(u.pathname)) {
+      return false;
+    }
+
+    if (/\/comments(?:\/|$)/i.test(u.pathname)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowed93(url) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname !== "93.ru") return false;
+
+    if (!/^\/text\/realty\/\d{4}\/\d{2}\/\d{2}\/\d+/i.test(u.pathname)) {
+      return false;
+    }
+
+    if (/\/comments(?:\/|$)/i.test(u.pathname)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowedKrasdom(url) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname !== "krasdom.ru") return false;
+
+    if (!/^\/news\/\d+/i.test(u.pathname)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowedDomrf(url) {
+  try {
+    const u = new URL(url);
+
+    if (!/xn--h1alcedd\.xn--d1aqf\.xn--p1ai$/i.test(u.hostname)) {
+      return false;
+    }
+
+    return /^\/news\/.+/i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowedDomclick(url) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname !== "blog.domclick.ru") {
+      return false;
+    }
+
+    if (/\/videos?(?:\/|$)/i.test(u.pathname)) {
+      return false;
+    }
+
+    if (!/^\/[^/]+\/.+/i.test(u.pathname)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowedYandex(url) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname !== "realty.yandex.ru") {
+      return false;
+    }
+
+    return /^\/journal\/(?:post|article)\//i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+
+function isAllowedCian(url) {
+  try {
+    const u = new URL(url);
+
+    if (!/^(?:www\.)?cian\.ru$/i.test(u.hostname) &&
+        !/^(?:www\.)?krasnodar\.cian\.ru$/i.test(u.hostname)) {
+      return false;
+    }
+
+    if (
+      /^\/novosti-[^/]+-\d+/i.test(u.pathname) ||
+      /^\/magazine\/.+/i.test(u.pathname)
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+
+/* =========================================================
+   ЯНДЕКС — ЗАРУБЕЖНЫЙ КОНТЕНТ
+========================================================= */
+
+const YANDEX_FOREIGN_WORDS = [
+  "лондон",
+  "япони",
+  "япон",
+  "турци",
+  "турц",
+  "майами",
+  "сша",
+  "американ",
+  "америк",
+  "великобрит",
+  "англи",
+  "англий",
+  "дубай",
+  "оаэ",
+  "сингапур",
+  "таиланд",
+  "тайланд",
+  "бали",
+  "индонези",
+  "кипр",
+  "испан",
+  "франци",
+  "француз",
+  "итал",
+  "германи",
+  "герман",
+  "катар",
+  "саудовск",
+  "зарубежн",
+  "иностранн",
+  "канад",
+  "австрал",
+  "новой зеланд",
+  "мексик",
+  "бразил",
+  "китай",
+  "китайск",
+  "южной коре",
+  "коре",
+  "тайван",
+  "индий",
+  "индия",
+  "израил",
+  "египет",
+  "черногор",
+  "греци",
+  "греци",
+  "португал",
+  "чехи",
+  "чехия",
+  "польш",
+  "венгр",
+  "серби",
+  "армени",
+  "грузи"
+];
+
+
+const YANDEX_FOREIGN_SLUGS = [
+  "london",
+  "yaponi",
+  "yapon",
+  "turci",
+  "miami",
+  "usa",
+  "ssha",
+  "america",
+  "americ",
+  "britain",
+  "england",
+  "dubai",
+  "oae",
+  "singapore",
+  "thailand",
+  "bali",
+  "indonesia",
+  "cyprus",
+  "spain",
+  "france",
+  "italy",
+  "germany",
+  "qatar",
+  "canada",
+  "australia"
+];
+
+
+function isYandexForeignContent(item) {
+  const text = [
+    item.title || "",
+    item.description || "",
+    item.url || ""
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/ё/g, "е");
+
+  for (const word of YANDEX_FOREIGN_WORDS) {
+    if (text.includes(word)) {
+      return true;
+    }
+  }
+
+  for (const slug of YANDEX_FOREIGN_SLUGS) {
+    if (text.includes(slug)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+/* =========================================================
+   ОБЩАЯ КЛАССИФИКАЦИЯ
+========================================================= */
+
+function classifyTopic(title, description) {
+  const text = `${title} ${description}`.toLowerCase();
+
+  if (
+    /ипотек|ключев(ая|ой) ставк|банк|кредит|семейн(ая|ой) ипотек|ставк[аи]|рефинанс/i.test(
+      text
+    )
+  ) {
+    return "Ипотека и банки";
+  }
+
+  if (
+    /закон|законодательств|госдум|правительств|путин|минфин|росреестр|маткапитал|налог|налогооблож|изменени[ея] правил/i.test(
+      text
+    )
+  ) {
+    return "Законодательство";
+  }
+
+  if (
+    /новостройк|жк |жилой комплекс|застройщик|долев|строительств|эскроу|новый дом/i.test(
+      text
+    )
+  ) {
+    return "Новостройки";
+  }
+
+  if (
+    /квартир|жиль[её]|недвижим|дом[аеу]?|рынок жилья|вторичк|аренд|продаж[ае] квартир/i.test(
+      text
+    )
+  ) {
+    return "Недвижимость";
+  }
+
+  return "Главное сегодня";
+}
+
+
+/* =========================================================
+   ИЗВЛЕЧЕНИЕ ССЫЛОК
+========================================================= */
+
+function extractLinks(html, baseUrl) {
+  const result = [];
+
+  const regex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
+
+  let match;
+
+  while ((match = regex.exec(html))) {
+    const url = normalizeUrl(match[1], baseUrl);
+
+    if (!url) continue;
+
+    result.push(url);
+  }
+
+  return [...new Set(result)];
+}
+
+
+/* =========================================================
+   ДАННЫЕ СТАТЬИ
+========================================================= */
+
+function extractArticleData(html, url) {
+  const jsonLd = extractJsonLdArticle(html);
+
+  let title = "";
+  let description = "";
+  let image = "";
+  let publishedAt = null;
+
+  if (jsonLd) {
+    if (typeof jsonLd.headline === "string") {
+      title = cleanTitle(jsonLd.headline);
+    }
+
+    if (typeof jsonLd.description === "string") {
+      description = cleanDescription(jsonLd.description);
+    }
+
+    if (jsonLd.image) {
+      if (typeof jsonLd.image === "string") {
+        image = normalizeUrl(jsonLd.image, url) || "";
+      } else if (Array.isArray(jsonLd.image) && jsonLd.image.length) {
+        const value =
+          typeof jsonLd.image[0] === "string"
+            ? jsonLd.image[0]
+            : jsonLd.image[0]?.url;
+
+        image = normalizeUrl(value, url) || "";
+      } else if (typeof jsonLd.image === "object") {
+        image = normalizeUrl(jsonLd.image.url, url) || "";
+      }
+    }
+
+    publishedAt =
+      parseDate(jsonLd.datePublished) ||
+      parseDate(jsonLd.dateCreated) ||
+      parseDate(jsonLd.dateModified);
+  }
+
+  if (!title) {
+    title = extractTitle(html);
+  }
+
+  if (!description) {
+    description = extractDescription(html);
+  }
+
+  if (!image) {
+    image = extractImage(html, url);
+  }
+
+  if (!publishedAt) {
+    publishedAt = extractDate(html, url);
+  }
+
+  return {
+    title: cleanTitle(title),
+    description: cleanDescription(description),
+    image,
+    publishedAt
+  };
+}
+
+
+/* =========================================================
+   СОЗДАНИЕ ITEM
+========================================================= */
+
+function createItem({
+  source,
+  sourceName,
+  category,
+  url,
+  title,
+  description,
+  image,
+  publishedAt
+}) {
+  if (!title || !url) return null;
+
+  const date = publishedAt instanceof Date
+    ? publishedAt
+    : parseDate(publishedAt);
+
+  if (!date) return null;
+
+  return {
+    id: makeId(source, url),
+    source,
+    sourceName,
+    category,
+    topic: classifyTopic(title, description),
+    title: cleanTitle(title),
+    description: cleanDescription(description),
+    url: stripTracking(url),
+    image: image || "",
+    publishedAt: date.toISOString()
+  };
+}
+
+
+/* =========================================================
+   ОБЩИЙ ПАРСЕР СТРАНИЦЫ И СПИСКА ССЫЛОК
+========================================================= */
+
+async function parseGenericSource(sourceKey, source, html, stats) {
+  let urls = extractLinks(html, source.url);
+
+  urls = urls.filter(url => {
+    if (sourceKey === "161ru") return isAllowed161(url);
+    if (sourceKey === "93ru") return isAllowed93(url);
+    if (sourceKey === "krasdom") return isAllowedKrasdom(url);
+    if (sourceKey === "domrf") return isAllowedDomrf(url);
+    if (sourceKey === "yandexrealty") return isAllowedYandex(url);
+    if (sourceKey === "cian") return isAllowedCian(url);
+
+    return false;
+  });
+
+  urls = [...new Set(urls)];
+
+  stats.candidates = urls.length;
+
+  const items = [];
+
+  for (const url of urls.slice(0, 100)) {
+    try {
+      const page = await fetchText(url);
+
+      if (!page.ok || !page.text) {
+        stats.failed++;
+        continue;
+      }
+
+      const data = extractArticleData(page.text, url);
+
+      if (!data.title || !data.publishedAt) {
+        stats.rejected++;
+        continue;
+      }
+
+      const item = createItem({
+        source: sourceKey,
+        sourceName: source.name,
+        category: source.category,
+        url,
+        title: data.title,
+        description: data.description,
+        image: data.image,
+        publishedAt: data.publishedAt
+      });
+
+      if (!item) {
+        stats.rejected++;
+        continue;
+      }
+
+      if (
+        sourceKey === "yandexrealty" &&
+        isYandexForeignContent(item)
+      ) {
+        stats.rejected++;
+        continue;
+      }
+
+      items.push(item);
+    } catch {
+      stats.failed++;
+    }
+  }
+
+  return items;
+}
+
+
+/* =========================================================
+   ДОМКЛИК
+========================================================= */
+
+async function parseDomclick(stats) {
+  const items = [];
+
+  const attempts = [];
+
+  /* Сначала официальный блог */
+
+  const blog = await fetchText(
+    "https://blog.domclick.ru/novosti"
+  );
+
+  attempts.push({
+    url: "https://blog.domclick.ru/novosti",
+    status: blog.status,
+    ok: blog.ok
+  });
+
+  let html = "";
+
+  if (blog.ok && blog.text) {
+    html = blog.text;
+  }
+
+  /* Если 401 — официальный Telegram */
+
+  if (!html) {
+    const telegram = await fetchText(
+      "https://t.me/s/domclick"
+    );
+
+    attempts.push({
+      url: "https://t.me/s/domclick",
+      status: telegram.status,
+      ok: telegram.ok
+    });
+
+    if (telegram.ok && telegram.text) {
+      html = telegram.text;
+
+      /*
+       * Ищем ссылки blog.domclick.ru напрямую.
+       * Не зависим от конкретной HTML-структуры Telegram.
+       */
+
+      const links = [];
+
+      const regex =
+        /href=["'](https?:\/\/blog\.domclick\.ru\/[^"'<> ]+)["']/gi;
+
+      let match;
+
+      while ((match = regex.exec(html))) {
+        const url = normalizeUrl(match[1], "https://t.me/");
+
+        if (!url) continue;
+
+        if (!isAllowedDomclick(url)) continue;
+
+        if (/\/videos?(?:\/|$)/i.test(url)) continue;
+
+        links.push(url);
+      }
+
+      const uniqueLinks = [...new Set(links)];
+
+      stats.candidates = uniqueLinks.length;
+
+      for (const url of uniqueLinks.slice(0, 50)) {
+        try {
+          const article = await fetchText(url);
+
+          let data = null;
+
+          if (article.ok && article.text) {
+            data = extractArticleData(article.text, url);
+          }
+
+          /*
+           * Если статья не открылась, пытаемся найти
+           * дату Telegram рядом со ссылкой.
+           */
+
+          if (!data || !data.title) {
+            data = {
+              title: "",
+              description: "",
+              image: "",
+              publishedAt: null
+            };
+          }
+
+          if (!data.publishedAt) {
+            const position = html.indexOf(url);
+
+            if (position >= 0) {
+              const before = html.slice(
+                Math.max(0, position - 10000),
+                position
+              );
+
+              const timeMatches = [
+                ...before.matchAll(
+                  /<time[^>]+datetime=["']([^"']+)["'][^>]*>/gi
+                )
+              ];
+
+              if (timeMatches.length) {
+                const last =
+                  timeMatches[timeMatches.length - 1];
+
+                data.publishedAt = parseDate(last[1]);
+              }
+            }
+          }
+
+          /*
+           * Еще одна попытка даты — по тексту Telegram.
+           */
+
+          if (!data.publishedAt) {
+            const position = html.indexOf(url);
+
+            if (position >= 0) {
+              const context = html.slice(
+                Math.max(0, position - 10000),
+                Math.min(html.length, position + 5000)
+              );
+
+              data.publishedAt = extractDateFromText(context);
+            }
+          }
+
+          if (!data.title || !data.publishedAt) {
+            stats.rejected++;
+            continue;
+          }
+
+          const item = createItem({
+            source: "domclick",
+            sourceName: "Домклик",
+            category: "federal",
+            url,
+            title: data.title,
+            description: data.description,
+            image: data.image,
+            publishedAt: data.publishedAt
+          });
+
+          if (!item) {
+            stats.rejected++;
+            continue;
+          }
+
+          items.push(item);
+        } catch {
+          stats.failed++;
+        }
+      }
+
+      stats.attempts = attempts;
+
+      return items;
+    }
+  }
+
+  /*
+   * Если блог вдруг открылся напрямую.
+   */
+
+  if (html) {
+    const generic = await parseGenericSource(
+      "domclick",
+      SOURCES.domclick,
+      html,
+      stats
+    );
+
+    stats.attempts = attempts;
+
+    return generic;
+  }
+
+  stats.attempts = attempts;
+
+  return items;
+}
+
+
+/* =========================================================
+   ЦИАН
+========================================================= */
+
+function extractCianRssLinks(html) {
   const result = [];
 
   const regex =
@@ -464,995 +1260,51 @@ function extractAllAnchors(html, baseUrl) {
   let match;
 
   while ((match = regex.exec(html))) {
-    const href = normalizeUrl(match[1], baseUrl);
-
-    if (!href) continue;
-
-    const text = cleanText(match[2]);
-
-    result.push({
-      url: href,
-      text
-    });
-  }
-
-  return result;
-}
-
-
-function isLikelyArticleTitle(title) {
-  if (!title) return false;
-
-  if (title.length < 20) return false;
-
-  const bad = [
-    "подробнее",
-    "читать далее",
-    "все новости",
-    "главная",
-    "новости",
-    "каталог",
-    "меню",
-    "войти",
-    "регистрация"
-  ];
-
-  const lower = title.toLowerCase();
-
-  return !bad.some(item => lower === item);
-}
-
-
-/* =========================================================
-   FOREIGN / IRRELEVANT CONTENT
-========================================================= */
-
-function isForeignContent(title, description = "") {
-  const text = `${title} ${description}`.toLowerCase();
-
-  const patterns = [
-    /\bлондон\b/,
-    /\bвеликобритани/,
-    /\bангли/,
-    /\bяпони/,
-    /\bтокио\b/,
-    /\bтурци/,
-    /\bстамбул/,
-    /\bдубай/,
-    /\bоаэ/,
-    /\bсша\b/,
-    /\bамерикан/,
-    /\bсоединенн(?:ые|ых)\s+штат/,
-    /\bсингапур/,
-    /\bтаиланд/,
-    /\bбали\b/,
-    /\bиндонези/,
-    /\bкипр/,
-    /\bиспан/,
-    /\bфранци/,
-    /\bитал/,
-    /\bгермани/,
-    /\bкатар/,
-    /\bсаудовск(?:ая|ой)\s+араби/,
-    /\bзарубежн(?:ое|ая|ых|ый)\s+жиль/
-  ];
-
-  return patterns.some(pattern => pattern.test(text));
-}
-
-
-/* =========================================================
-   TOPIC
-========================================================= */
-
-function classifyTopic(title, description = "") {
-  const text = `${title} ${description}`.toLowerCase();
-
-  if (
-    /ипотек|ключев(?:ая|ой)\s+ставк|ставк[аи]|кредит|заем|займ|банк|семейн(?:ая|ой)\s+ипотек/.test(text)
-  ) {
-    return "mortgage";
-  }
-
-  if (
-    /закон|законодатель|росреестр|госуслуг|документ|договор|юрист|юридичес|налог|льгот|жку|капитальн(?:ый|ого)\s+ремонт/.test(text)
-  ) {
-    return "legislation";
-  }
-
-  if (
-    /новостро|застройщик|девелопер|первичк|жк\b|жил(?:ой|ого)\s+комплекс/.test(text)
-  ) {
-    return "newbuild";
-  }
-
-  if (
-    /квартир|жиль|недвижим|дом\b|участк|аренд|продаж|покупк|вторичк/.test(text)
-  ) {
-    return "realty";
-  }
-
-  return "realty";
-}
-
-
-/* =========================================================
-   ARTICLE EXTRACTION
-========================================================= */
-
-async function extractArticleData(url, fallbackTitle = "") {
-  try {
-    const response = await fetchText(url);
-
-    if (!response.ok) {
-      return {
-        title: cleanTitle(fallbackTitle),
-        description: "",
-        image: "",
-        publishedAt: null
-      };
-    }
-
-    const html = response.text;
-
-    const article = findArticleJsonLd(html);
-
-    let title =
-      cleanTitle(
-        article?.headline ||
-        extractMeta(html, "og:title") ||
-        extractTitleTag(html) ||
-        fallbackTitle
-      );
-
-    let description =
-      cleanDescription(
-        article?.description ||
-        extractMeta(html, "og:description") ||
-        extractMeta(html, "description")
-      );
-
-    let image =
-      article?.image?.url ||
-      article?.image ||
-      extractImage(html, url);
-
-    if (Array.isArray(image)) {
-      image = image[0];
-    }
-
-    if (image) {
-      try {
-        image = new URL(image, url).toString();
-      } catch {
-        image = "";
-      }
-    }
-
-    if (
-      image &&
-      (
-        image.includes("telegram.org/img/emoji") ||
-        image.includes("/emoji/")
-      )
-    ) {
-      image = "";
-    }
-
-    let publishedAt =
-      parseDate(
-        article?.datePublished ||
-        article?.dateCreated ||
-        extractMeta(html, "article:published_time")
-      );
-
-    if (!publishedAt) {
-      publishedAt = extractDate(html);
-    }
-
-    return {
-      title,
-      description,
-      image,
-      publishedAt
-    };
-
-  } catch {
-    return {
-      title: cleanTitle(fallbackTitle),
-      description: "",
-      image: "",
-      publishedAt: null
-    };
-  }
-}
-
-
-/* =========================================================
-   SOURCE-SPECIFIC LINK FILTER
-========================================================= */
-
-function isAllowedArticleUrl(sourceKey, url) {
-  if (!url) return false;
-
-  let u;
-
-  try {
-    u = new URL(url);
-  } catch {
-    return false;
-  }
-
-  const host = u.hostname.toLowerCase();
-  const path = u.pathname;
-
-  if (sourceKey === "161ru") {
-    if (host !== "161.ru" && host !== "www.161.ru") {
-      return false;
-    }
-
-    if (!/^\/text\/realty\/\d{4}\/\d{2}\/\d+\/\d+/i.test(path)) {
-      return false;
-    }
-
-    if (/\/comments/i.test(path)) {
-      return false;
-    }
-
-    return true;
-  }
-
-
-  if (sourceKey === "93ru") {
-    if (host !== "93.ru" && host !== "www.93.ru") {
-      return false;
-    }
-
-    if (!/^\/text\/realty\/\d{4}\/\d{2}\/\d+\/\d+/i.test(path)) {
-      return false;
-    }
-
-    if (/\/comments/i.test(path)) {
-      return false;
-    }
-
-    return true;
-  }
-
-
-  if (sourceKey === "krasdom") {
-    if (host !== "krasdom.ru" && host !== "www.krasdom.ru") {
-      return false;
-    }
-
-    if (!/^\/news\/\d+/i.test(path)) {
-      return false;
-    }
-
-    return true;
-  }
-
-
-  if (sourceKey === "domrf") {
-    if (!host.includes("дом.рф") && !host.includes("xn--h1alcedd")) {
-      return false;
-    }
-
-    if (!/^\/news\//i.test(path)) {
-      return false;
-    }
-
-    return true;
-  }
-
-
-  if (sourceKey === "yandexrealty") {
-    if (
-      host !== "realty.yandex.ru" &&
-      host !== "www.realty.yandex.ru"
-    ) {
-      return false;
-    }
-
-    if (!/^\/journal\/post\//i.test(path)) {
-      return false;
-    }
-
-    return true;
-  }
-
-
-  if (sourceKey === "cian") {
-    if (!host.endsWith("cian.ru")) {
-      return false;
-    }
-
-    /*
-     * Основной формат:
-     * https://www.cian.ru/novosti-...-345697
-     */
-
-    if (
-      /^\/novosti-[^/]+-\d+/i.test(path)
-    ) {
-      return true;
-    }
-
-    /*
-     * Возможный региональный формат:
-     * https://krasnodar.cian.ru/magazine/...
-     */
-
-    if (
-      /^\/magazine\/.+/i.test(path)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-
-  if (sourceKey === "domclick") {
-    if (
-      host !== "blog.domclick.ru" &&
-      host !== "www.blog.domclick.ru"
-    ) {
-      return false;
-    }
-
-    /*
-     * Видео не должны попадать в новостную ленту.
-     */
-
-    if (/^\/videos\//i.test(path)) {
-      return false;
-    }
-
-    /*
-     * Исключаем служебные страницы.
-     */
-
-    if (
-      /^\/novosti\/?$/i.test(path) ||
-      /^\/$/i.test(path)
-    ) {
-      return false;
-    }
-
-    return path.split("/").filter(Boolean).length >= 2;
-  }
-
-
-  return false;
-}
-
-
-/* =========================================================
-   GENERIC SOURCE PARSER
-========================================================= */
-
-async function parseGenericSource(sourceKey, source) {
-  const stats = {
-    name: source.name,
-    category: source.category,
-    candidates: 0,
-    recentCandidates: 0,
-    rejected: 0,
-    failed: 0
-  };
-
-  const response = await fetchText(source.url);
-
-  if (!response.ok) {
-    stats.failed = 1;
-
-    stats.error = `HTTP ${response.status}`;
-
-    return {
-      items: [],
-      stats
-    };
-  }
-
-  const anchors = extractAllAnchors(
-    response.text,
-    source.url
-  );
-
-  const unique = new Map();
-
-  for (const anchor of anchors) {
-    if (!isAllowedArticleUrl(sourceKey, anchor.url)) {
-      continue;
-    }
-
-    const url = stripTracking(anchor.url);
-
-    if (!url) continue;
-
-    if (!unique.has(url)) {
-      unique.set(url, anchor);
-    }
-  }
-
-  stats.candidates = unique.size;
-
-  const now = Date.now();
-  const maxAge = DEFAULT_DAYS * 24 * 60 * 60 * 1000;
-
-  const items = [];
-
-  for (const [url, anchor] of unique) {
-    try {
-      const data = await extractArticleData(
-        url,
-        anchor.text
-      );
-
-      let publishedAt = data.publishedAt;
-
-      if (!publishedAt) {
-        publishedAt = extractDateFromNewsUrl(url);
-      }
-
-      if (!publishedAt && sourceKey === "domrf") {
-        publishedAt = extractDateFromDomRfUrl(url);
-      }
-
-      if (!publishedAt) {
-        stats.rejected++;
-        continue;
-      }
-
-      const age = now - publishedAt.getTime();
-
-      if (
-        age < 0 ||
-        age > maxAge
-      ) {
-        stats.rejected++;
-        continue;
-      }
-
-      let title = cleanTitle(data.title || anchor.text);
-
-      let description = cleanDescription(
-        data.description || ""
-      );
-
-      if (!isLikelyArticleTitle(title)) {
-        stats.rejected++;
-        continue;
-      }
-
-      if (
-        (
-          sourceKey === "yandexrealty" ||
-          sourceKey === "cian"
-        ) &&
-        isForeignContent(title, description)
-      ) {
-        stats.rejected++;
-        continue;
-      }
-
-      if (
-        sourceKey === "domclick" &&
-        /(^|\s)(видео|video)(\s|$)/i.test(title)
-      ) {
-        stats.rejected++;
-        continue;
-      }
-
-      stats.recentCandidates++;
-
-      items.push({
-        id: makeId(url),
-        source: sourceKey,
-        sourceName: source.name,
-        title,
-        description,
-        url,
-        image: data.image || "",
-        publishedAt: publishedAt.toISOString(),
-        topic: classifyTopic(
-          title,
-          description
-        )
-      });
-
-    } catch {
-      stats.rejected++;
-    }
-  }
-
-  return {
-    items,
-    stats
-  };
-}
-
-
-/* =========================================================
-   DOMCLICK
-========================================================= */
-
-function extractDomclickUrlsFromHtml(html) {
-  const urls = new Set();
-
-  const anchors = extractAllAnchors(
-    html,
-    "https://blog.domclick.ru/"
-  );
-
-  for (const anchor of anchors) {
-    if (
-      isAllowedArticleUrl(
-        "domclick",
-        anchor.url
-      )
-    ) {
-      urls.add(
-        stripTracking(anchor.url)
-      );
-    }
-  }
-
-  return [...urls];
-}
-
-
-function extractTelegramPostBlocks(html) {
-  const blocks = [];
-
-  const regex =
-    /<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][^>]*>[\s\S]*?<\/div>\s*<\/div>/gi;
-
-  let match;
-
-  while ((match = regex.exec(html))) {
-    blocks.push(match[0]);
-  }
-
-  return blocks;
-}
-
-
-function extractTelegramDate(block) {
-  const match = block.match(
-    /<time[^>]+datetime=["']([^"']+)["']/i
-  );
-
-  if (!match) return null;
-
-  return parseDate(match[1]);
-}
-
-
-function extractTelegramText(block) {
-  const match = block.match(
-    /class=["'][^"']*tgme_widget_message_text[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
-  );
-
-  if (!match) return "";
-
-  return cleanDescription(match[1]);
-}
-
-
-function extractTelegramImage(block) {
-  const matches = [
-    ...block.matchAll(
-      /background-image:url\(["']?([^"')]+)["']?\)/gi
-    )
-  ];
-
-  for (const match of matches) {
-    const url = match[1];
-
-    if (
-      !url.includes("telegram.org/img/emoji") &&
-      !url.includes("/emoji/")
-    ) {
-      return url;
-    }
-  }
-
-  return "";
-}
-
-
-function extractDomclickBlogUrlsFromBlock(block) {
-  const urls = new Set();
-
-  const regex =
-    /href=["'](https?:\/\/(?:www\.)?blog\.domclick\.ru\/[^"']+)["']/gi;
-
-  let match;
-
-  while ((match = regex.exec(block))) {
-    const url = normalizeUrl(
+    const href = normalizeUrl(
       match[1],
-      "https://blog.domclick.ru/"
-    );
-
-    if (
-      url &&
-      isAllowedArticleUrl("domclick", url)
-    ) {
-      urls.add(url);
-    }
-  }
-
-  return [...urls];
-}
-
-
-async function parseDomclick() {
-  const stats = {
-    name: SOURCES.domclick.name,
-    category: SOURCES.domclick.category,
-    candidates: 0,
-    recentCandidates: 0,
-    rejected: 0,
-    failed: 0,
-    attempts: []
-  };
-
-  const items = [];
-  const seen = new Set();
-
-  /*
-   * Сначала пытаемся получить официальный блог.
-   */
-
-  try {
-    const blog = await fetchText(
-      SOURCES.domclick.url
-    );
-
-    stats.attempts.push({
-      url: SOURCES.domclick.url,
-      status: blog.status,
-      ok: blog.ok
-    });
-
-    if (blog.ok) {
-      const urls =
-        extractDomclickUrlsFromHtml(
-          blog.text
-        );
-
-      stats.candidates += urls.length;
-
-      for (const url of urls) {
-        if (seen.has(url)) continue;
-
-        seen.add(url);
-
-        const data =
-          await extractArticleData(url);
-
-        const publishedAt =
-          data.publishedAt;
-
-        if (!publishedAt) {
-          continue;
-        }
-
-        const age =
-          Date.now() -
-          publishedAt.getTime();
-
-        if (
-          age < 0 ||
-          age > DEFAULT_DAYS * 86400000
-        ) {
-          stats.rejected++;
-          continue;
-        }
-
-        const title =
-          cleanTitle(data.title);
-
-        const description =
-          cleanDescription(
-            data.description
-          );
-
-        if (!isLikelyArticleTitle(title)) {
-          stats.rejected++;
-          continue;
-        }
-
-        if (
-          /\/videos\//i.test(url)
-        ) {
-          stats.rejected++;
-          continue;
-        }
-
-        items.push({
-          id: makeId(url),
-          source: "domclick",
-          sourceName: "Домклик",
-          title,
-          description,
-          url,
-          image: data.image || "",
-          publishedAt:
-            publishedAt.toISOString(),
-          topic: classifyTopic(
-            title,
-            description
-          )
-        });
-
-        stats.recentCandidates++;
-      }
-    }
-
-  } catch (error) {
-    stats.attempts.push({
-      url: SOURCES.domclick.url,
-      status: 0,
-      ok: false
-    });
-  }
-
-
-  /*
-   * Основной fallback — официальный Telegram Домклика.
-   */
-
-  try {
-    const telegramUrl =
-      "https://t.me/s/domclick";
-
-    const tg =
-      await fetchText(telegramUrl);
-
-    stats.attempts.push({
-      url: telegramUrl,
-      status: tg.status,
-      ok: tg.ok
-    });
-
-    if (tg.ok) {
-      const blocks =
-        extractTelegramPostBlocks(
-          tg.text
-        );
-
-      for (const block of blocks) {
-        const date =
-          extractTelegramDate(block);
-
-        if (!date) continue;
-
-        const age =
-          Date.now() -
-          date.getTime();
-
-        if (
-          age < 0 ||
-          age > DEFAULT_DAYS * 86400000
-        ) {
-          continue;
-        }
-
-        const urls =
-          extractDomclickBlogUrlsFromBlock(
-            block
-          );
-
-        /*
-         * Если в посте есть ссылка на статью,
-         * используем именно статью, а не Telegram-пост.
-         */
-
-        if (urls.length) {
-          for (const url of urls) {
-            if (seen.has(url)) continue;
-
-            seen.add(url);
-
-            const data =
-              await extractArticleData(url);
-
-            const title =
-              cleanTitle(data.title);
-
-            const description =
-              cleanDescription(
-                data.description
-              );
-
-            if (!isLikelyArticleTitle(title)) {
-              continue;
-            }
-
-            if (/\/videos\//i.test(url)) {
-              continue;
-            }
-
-            let image =
-              data.image ||
-              extractTelegramImage(block);
-
-            if (
-              image &&
-              (
-                image.includes(
-                  "telegram.org/img/emoji"
-                ) ||
-                image.includes("/emoji/")
-              )
-            ) {
-              image = "";
-            }
-
-            const publishedAt =
-              data.publishedAt || date;
-
-            items.push({
-              id: makeId(url),
-              source: "domclick",
-              sourceName: "Домклик",
-              title,
-              description,
-              url,
-              image,
-              publishedAt:
-                publishedAt.toISOString(),
-              topic: classifyTopic(
-                title,
-                description
-              )
-            });
-
-            stats.recentCandidates++;
-          }
-
-          continue;
-        }
-
-        /*
-         * Если ссылки на статью нет,
-         * не превращаем Telegram-пост
-         * в новость — иначе в ленту будут
-         * попадать рекламные и служебные посты.
-         */
-      }
-    }
-
-  } catch {}
-
-  /*
-   * Удаляем дубли.
-   */
-
-  const unique = new Map();
-
-  for (const item of items) {
-    if (!unique.has(item.url)) {
-      unique.set(item.url, item);
-    }
-  }
-
-  const result = [...unique.values()]
-    .sort(
-      (a, b) =>
-        new Date(b.publishedAt) -
-        new Date(a.publishedAt)
-    );
-
-  stats.candidates = Math.max(
-    stats.candidates,
-    result.length
-  );
-
-  stats.recentCandidates =
-    result.length;
-
-  return {
-    items: result,
-    stats
-  };
-}
-
-
-/* =========================================================
-   CIAN RSS
-========================================================= */
-
-function extractCianRssUrl(html) {
-  const patterns = [
-    /<link[^>]+type=["']application\/rss\+xml["'][^>]+href=["']([^"']+)["']/i,
-    /<link[^>]+href=["']([^"']+)["'][^>]+type=["']application\/rss\+xml["']/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-
-    if (match) {
-      return normalizeUrl(
-        match[1],
-        "https://krasnodar.cian.ru/magazine/"
-      );
-    }
-  }
-
-  /*
-   * Дополнительный поиск обычной ссылки RSS.
-   */
-
-  const links =
-    extractAllAnchors(
-      html,
       "https://krasnodar.cian.ru/magazine/"
     );
 
-  for (const link of links) {
+    const text = cleanText(match[2]);
+
+    if (!href) continue;
+
     if (
-      /rss/i.test(link.url) ||
-      /rss/i.test(link.text)
+      /rss|feed|новост|новост[еи]/i.test(href) ||
+      /rss|новост/i.test(text)
     ) {
-      return link.url;
+      result.push(href);
     }
   }
 
-  return "";
+  return [...new Set(result)];
 }
 
 
-function extractXmlTag(block, tag) {
-  const regex =
-    new RegExp(
-      `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
-      "i"
-    );
-
-  const match = block.match(regex);
-
-  return match
-    ? cleanText(match[1])
-    : "";
-}
-
-
-function parseCianRss(xml) {
+function parseXmlItems(xml) {
   const items = [];
 
-  const regex =
+  const itemRegex =
     /<item\b[\s\S]*?<\/item>/gi;
 
   let match;
 
-  while ((match = regex.exec(xml))) {
+  while ((match = itemRegex.exec(xml))) {
     const block = match[0];
 
     const title =
-      cleanTitle(
-        extractXmlTag(block, "title")
-      );
-
-    const description =
-      cleanDescription(
-        extractXmlTag(block, "description")
-      );
+      extractXmlTag(block, "title");
 
     const link =
-      normalizeUrl(
-        extractXmlTag(block, "link"),
-        "https://www.cian.ru/"
-      );
+      extractXmlTag(block, "link");
+
+    const description =
+      extractXmlTag(block, "description");
 
     const pubDate =
-      parseDate(
-        extractXmlTag(block, "pubDate")
-      );
+      extractXmlTag(block, "pubDate") ||
+      extractXmlTag(block, "dc:date") ||
+      extractXmlTag(block, "published");
 
     let image = "";
 
@@ -1465,281 +1317,296 @@ function parseCianRss(xml) {
       image = enclosure[1];
     }
 
-    if (!image) {
-      const media =
-        block.match(
-          /<(?:media:content|media:thumbnail)[^>]+url=["']([^"']+)["']/i
-        );
-
-      if (media) {
-        image = media[1];
-      }
+    if (title && link) {
+      items.push({
+        title: cleanTitle(title),
+        link: stripTracking(link),
+        description: cleanDescription(description),
+        pubDate: parseDate(pubDate),
+        image
+      });
     }
-
-    if (!link || !title) {
-      continue;
-    }
-
-    items.push({
-      title,
-      description,
-      url: link,
-      image,
-      publishedAt: pubDate
-    });
   }
 
   return items;
 }
 
 
-async function parseCian() {
-  const stats = {
-    name: SOURCES.cian.name,
-    category: SOURCES.cian.category,
-    candidates: 0,
-    recentCandidates: 0,
-    rejected: 0,
-    failed: 0
-  };
+function extractXmlTag(block, tag) {
+  const regex = new RegExp(
+    `<${escapeRegExp(tag)}[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>`,
+    "i"
+  );
 
-  const result = [];
+  const match = block.match(regex);
 
-  try {
-    const page =
-      await fetchText(
-        SOURCES.cian.url
-      );
+  if (!match) return "";
 
-    if (!page.ok) {
-      stats.failed = 1;
-      stats.error =
-        `HTTP ${page.status}`;
+  return cleanText(
+    match[1]
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
+  );
+}
 
-      return {
-        items: [],
-        stats
-      };
-    }
 
-    let rssUrl =
-      extractCianRssUrl(page.text);
+async function parseCian(stats) {
+  const items = [];
 
-    if (rssUrl) {
-      try {
-        const rss =
-          await fetchText(rssUrl);
+  const page = await fetchText(
+    SOURCES.cian.url
+  );
 
-        if (rss.ok) {
-          const rssItems =
-            parseCianRss(rss.text);
-
-          stats.candidates =
-            rssItems.length;
-
-          for (const item of rssItems) {
-            if (!item.publishedAt) {
-              stats.rejected++;
-              continue;
-            }
-
-            const age =
-              Date.now() -
-              item.publishedAt.getTime();
-
-            if (
-              age < 0 ||
-              age > DEFAULT_DAYS * 86400000
-            ) {
-              stats.rejected++;
-              continue;
-            }
-
-            if (
-              isForeignContent(
-                item.title,
-                item.description
-              )
-            ) {
-              stats.rejected++;
-              continue;
-            }
-
-            result.push({
-              id: makeId(item.url),
-              source: "cian",
-              sourceName: "ЦИАН",
-              title: cleanTitle(item.title),
-              description:
-                cleanDescription(
-                  item.description
-                ),
-              url: stripTracking(
-                item.url
-              ),
-              image:
-                item.image || "",
-              publishedAt:
-                item.publishedAt.toISOString(),
-              topic: classifyTopic(
-                item.title,
-                item.description
-              )
-            });
-
-            stats.recentCandidates++;
-          }
-
-          return {
-            items: result,
-            stats
-          };
-        }
-      } catch {}
-    }
-
-    /*
-     * Если RSS не сработал — парсим
-     * непосредственно ссылки страницы.
-     */
-
-    const anchors =
-      extractAllAnchors(
-        page.text,
-        SOURCES.cian.url
-      );
-
-    const unique =
-      new Map();
-
-    for (const anchor of anchors) {
-      if (
-        !isAllowedArticleUrl(
-          "cian",
-          anchor.url
-        )
-      ) {
-        continue;
-      }
-
-      if (
-        isForeignContent(
-          anchor.text,
-          ""
-        )
-      ) {
-        continue;
-      }
-
-      if (!unique.has(anchor.url)) {
-        unique.set(
-          anchor.url,
-          anchor
-        );
-      }
-    }
-
-    stats.candidates =
-      unique.size;
-
-    for (const [url, anchor] of unique) {
-      const data =
-        await extractArticleData(
-          url,
-          anchor.text
-        );
-
-      if (!data.publishedAt) {
-        stats.rejected++;
-        continue;
-      }
-
-      const age =
-        Date.now() -
-        data.publishedAt.getTime();
-
-      if (
-        age < 0 ||
-        age > DEFAULT_DAYS * 86400000
-      ) {
-        stats.rejected++;
-        continue;
-      }
-
-      if (
-        isForeignContent(
-          data.title,
-          data.description
-        )
-      ) {
-        stats.rejected++;
-        continue;
-      }
-
-      result.push({
-        id: makeId(url),
-        source: "cian",
-        sourceName: "ЦИАН",
-        title:
-          cleanTitle(data.title),
-        description:
-          cleanDescription(
-            data.description
-          ),
-        url,
-        image:
-          data.image || "",
-        publishedAt:
-          data.publishedAt.toISOString(),
-        topic:
-          classifyTopic(
-            data.title,
-            data.description
-          )
-      });
-
-      stats.recentCandidates++;
-    }
-
-  } catch (error) {
-    stats.failed = 1;
-    stats.error =
-      error?.message || String(error);
+  if (!page.ok || !page.text) {
+    stats.failed++;
+    return items;
   }
 
-  return {
-    items: result,
-    stats
-  };
+  let rssLinks = extractCianRssLinks(page.text);
+
+  /*
+   * Если RSS-ссылка не найдена, пробуем известные варианты.
+   */
+
+  rssLinks = [
+    ...rssLinks,
+    "https://www.cian.ru/rss/novosti.xml",
+    "https://www.cian.ru/rss/"
+  ];
+
+  rssLinks = [...new Set(rssLinks)];
+
+  let rss = null;
+
+  for (const rssUrl of rssLinks) {
+    const response = await fetchText(rssUrl);
+
+    if (
+      response.ok &&
+      response.text &&
+      /<item\b/i.test(response.text)
+    ) {
+      rss = response.text;
+      break;
+    }
+  }
+
+  if (rss) {
+    const parsed = parseXmlItems(rss);
+
+    stats.candidates = parsed.length;
+
+    for (const article of parsed) {
+      if (!article.pubDate) {
+        stats.rejected++;
+        continue;
+      }
+
+      if (!isAllowedCian(article.link)) {
+        stats.rejected++;
+        continue;
+      }
+
+      const item = createItem({
+        source: "cian",
+        sourceName: "ЦИАН",
+        category: "federal",
+        url: article.link,
+        title: article.title,
+        description: article.description,
+        image: normalizeUrl(article.image, article.link) || "",
+        publishedAt: article.pubDate
+      });
+
+      if (!item) {
+        stats.rejected++;
+        continue;
+      }
+
+      items.push(item);
+    }
+
+    return items;
+  }
+
+  /*
+   * HTML fallback
+   */
+
+  let links = extractLinks(
+    page.text,
+    SOURCES.cian.url
+  );
+
+  links = links.filter(isAllowedCian);
+
+  stats.candidates = links.length;
+
+  for (const url of links.slice(0, 100)) {
+    try {
+      const article = await fetchText(url);
+
+      if (!article.ok || !article.text) {
+        stats.failed++;
+        continue;
+      }
+
+      const data = extractArticleData(
+        article.text,
+        url
+      );
+
+      if (!data.title || !data.publishedAt) {
+        stats.rejected++;
+        continue;
+      }
+
+      const item = createItem({
+        source: "cian",
+        sourceName: "ЦИАН",
+        category: "federal",
+        url,
+        title: data.title,
+        description: data.description,
+        image: data.image,
+        publishedAt: data.publishedAt
+      });
+
+      if (!item) {
+        stats.rejected++;
+        continue;
+      }
+
+      items.push(item);
+    } catch {
+      stats.failed++;
+    }
+  }
+
+  return items;
 }
 
 
 /* =========================================================
-   DEDUPLICATION
+   ПРОВЕРКА АКТУАЛЬНОСТИ
 ========================================================= */
 
-function dedupeItems(items) {
+function isRecent(date, days) {
+  if (!date) return false;
+
+  const now = Date.now();
+  const timestamp = date instanceof Date
+    ? date.getTime()
+    : new Date(date).getTime();
+
+  if (Number.isNaN(timestamp)) return false;
+
+  const maxAge = days * 24 * 60 * 60 * 1000;
+
+  return timestamp >= now - maxAge;
+}
+
+
+/* =========================================================
+   НОРМАЛИЗАЦИЯ ЗАГОЛОВКА ДЛЯ ДЕДУПЛИКАЦИИ
+========================================================= */
+
+function normalizeStoryTitle(title) {
+  return String(title || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/«|»|"|„|“|”/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+/* =========================================================
+   ДЕДУПЛИКАЦИЯ
+========================================================= */
+
+function dedupeItems(items, category) {
+  const result = [];
   const map = new Map();
 
+  /*
+   * Для конкретного региона не удаляем одинаковые
+   * материалы между 161/93, если они относятся к разным
+   * регионам.
+   */
+
   for (const item of items) {
-    const key =
-      item.url ||
-      `${item.source}:${item.title}`;
+    const key = normalizeStoryTitle(item.title);
+
+    if (!key) {
+      result.push(item);
+      continue;
+    }
 
     if (!map.has(key)) {
       map.set(key, item);
+      result.push(item);
+      continue;
+    }
+
+    const existing = map.get(key);
+
+    /*
+     * Если это all и статья одна и та же на 161/93,
+     * оставляем более содержательный вариант.
+     */
+
+    if (
+      category === "all" &&
+      (
+        (
+          existing.source === "161ru" &&
+          item.source === "93ru"
+        ) ||
+        (
+          existing.source === "93ru" &&
+          item.source === "161ru"
+        )
+      )
+    ) {
+      const existingScore =
+        (existing.description || "").length +
+        (existing.image ? 100 : 0);
+
+      const newScore =
+        (item.description || "").length +
+        (item.image ? 100 : 0);
+
+      if (newScore > existingScore) {
+        const index = result.indexOf(existing);
+
+        if (index >= 0) {
+          result[index] = item;
+        }
+
+        map.set(key, item);
+      }
     }
   }
 
-  return [...map.values()];
+  return result;
 }
 
 
 /* =========================================================
-   BALANCE SOURCES
+   БАЛАНС ИСТОЧНИКОВ
 ========================================================= */
 
 function balanceItems(items, limit) {
+  if (items.length <= limit) {
+    return items
+      .sort(
+        (a, b) =>
+          new Date(b.publishedAt) -
+          new Date(a.publishedAt)
+      );
+  }
+
   const groups = new Map();
 
   for (const item of items) {
@@ -1760,64 +1627,31 @@ function balanceItems(items, limit) {
 
   const result = [];
 
-  const sources =
-    [...groups.keys()];
-
-  let index = 0;
+  let added = true;
 
   while (
     result.length < limit &&
-    sources.length
+    added
   ) {
-    let added = false;
+    added = false;
 
-    for (
-      let i = 0;
-      i < sources.length &&
-      result.length < limit;
-      i++
-    ) {
-      const source =
-        sources[
-          (index + i) %
-          sources.length
-        ];
+    for (const list of groups.values()) {
+      if (!list.length) continue;
 
-      const list =
-        groups.get(source);
-
-      if (!list.length) {
-        continue;
-      }
-
-      result.push(
-        list.shift()
-      );
+      result.push(list.shift());
 
       added = true;
+
+      if (result.length >= limit) break;
     }
-
-    if (!added) break;
-
-    index++;
   }
 
-  /*
-   * Возвращаем общий порядок по дате.
-   */
-
-  return result
-    .sort(
-      (a, b) =>
-        new Date(b.publishedAt) -
-        new Date(a.publishedAt)
-    )
-    .slice(0, limit);
+  return result;
 }
 
 
 /* =========================================================
-   CATEGORY FILTER
+   ФИЛЬТР КАТЕГОРИИ
 ========================================================= */
 
 function filterCategory(items, category) {
@@ -1825,12 +1659,59 @@ function filterCategory(items, category) {
     return items;
   }
 
-  return items.filter(
-    item =>
-      item.topic === category ||
-      item.source === category ||
-      item.sourceName === category
-  );
+  const normalized = String(category)
+    .trim()
+    .toLowerCase();
+
+  return items.filter(item => {
+    const itemCategory =
+      String(item.category || "").toLowerCase();
+
+    const topic =
+      String(item.topic || "").toLowerCase();
+
+    if (
+      normalized === "rostov" ||
+      normalized === "ростов"
+    ) {
+      return itemCategory === "rostov";
+    }
+
+    if (
+      normalized === "krasnodar" ||
+      normalized === "краснодар"
+    ) {
+      return itemCategory === "krasnodar";
+    }
+
+    if (
+      normalized === "federal" ||
+      normalized === "федеральное"
+    ) {
+      return itemCategory === "federal";
+    }
+
+    return (
+      topic === normalized ||
+      topic === String(category).toLowerCase()
+    );
+  });
+}
+
+
+/* =========================================================
+   SOURCE STATS
+========================================================= */
+
+function createStats(source) {
+  return {
+    name: source.name,
+    category: source.category,
+    candidates: 0,
+    recentCandidates: 0,
+    rejected: 0,
+    failed: 0
+  };
 }
 
 
@@ -1839,7 +1720,6 @@ function filterCategory(items, category) {
 ========================================================= */
 
 module.exports = async function handler(req, res) {
-
   res.setHeader(
     "Access-Control-Allow-Origin",
     "*"
@@ -1862,280 +1742,423 @@ module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
       ok: false,
-      error: "Method not allowed"
+      error: "Method Not Allowed"
     });
   }
 
   const category =
-    String(
-      req.query.category ||
-      "all"
-    ).trim();
+    String(req.query?.category || "all")
+      .trim();
 
-  const limitRaw =
-    Number(
-      req.query.limit ||
-      DEFAULT_LIMIT
-    );
+  let limit =
+    Number(req.query?.limit || DEFAULT_LIMIT);
 
-  const limit =
-    Math.max(
-      1,
-      Math.min(
-        MAX_LIMIT,
-        Number.isFinite(limitRaw)
-          ? limitRaw
-          : DEFAULT_LIMIT
-      )
-    );
+  let days =
+    Number(req.query?.days || DEFAULT_DAYS);
 
-  const daysRaw =
-    Number(
-      req.query.days ||
-      DEFAULT_DAYS
-    );
+  if (!Number.isFinite(limit)) {
+    limit = DEFAULT_LIMIT;
+  }
 
-  const days =
-    Math.max(
-      1,
-      Math.min(
-        30,
-        Number.isFinite(daysRaw)
-          ? daysRaw
-          : DEFAULT_DAYS
-      )
-    );
+  if (!Number.isFinite(days)) {
+    days = DEFAULT_DAYS;
+  }
 
-  try {
+  limit = Math.max(
+    1,
+    Math.min(MAX_LIMIT, Math.floor(limit))
+  );
 
-    /*
-     * Запускаем источники параллельно.
-     */
+  days = Math.max(
+    1,
+    Math.min(30, Math.floor(days))
+  );
 
-    const [
-      result161,
-      result93,
-      resultKrasdom,
-      resultDomrf,
-      resultDomclick,
-      resultYandex,
-      resultCian
-    ] = await Promise.allSettled([
+  const allItems = [];
+  const sourcesStats = {};
 
-      parseGenericSource(
-        "161ru",
-        SOURCES["161ru"]
-      ),
+  /*
+   * ---------------------------------------------------------
+   * 161.RU
+   * ---------------------------------------------------------
+   */
 
-      parseGenericSource(
-        "93ru",
-        SOURCES["93ru"]
-      ),
+  {
+    const source = SOURCES["161ru"];
+    const stats = createStats(source);
 
-      parseGenericSource(
-        "krasdom",
-        SOURCES.krasdom
-      ),
+    try {
+      const page = await fetchText(source.url);
 
-      parseGenericSource(
-        "domrf",
-        SOURCES.domrf
-      ),
+      if (page.ok && page.text) {
+        const items = await parseGenericSource(
+          "161ru",
+          source,
+          page.text,
+          stats
+        );
 
-      parseDomclick(),
-
-      parseGenericSource(
-        "yandexrealty",
-        SOURCES.yandexrealty
-      ),
-
-      parseCian()
-
-    ]);
-
-
-    function getResult(
-      promiseResult,
-      sourceKey
-    ) {
-      if (
-        promiseResult.status === "fulfilled"
-      ) {
-        return promiseResult.value;
-      }
-
-      return {
-        items: [],
-        stats: {
-          name:
-            SOURCES[sourceKey].name,
-          category:
-            SOURCES[sourceKey].category,
-          candidates: 0,
-          recentCandidates: 0,
-          rejected: 0,
-          failed: 1,
-          error:
-            promiseResult.reason?.message ||
-            String(
-              promiseResult.reason
+        for (const item of items) {
+          if (
+            isRecent(
+              item.publishedAt,
+              days
             )
+          ) {
+            stats.recentCandidates++;
+            allItems.push(item);
+          } else {
+            stats.rejected++;
+          }
         }
-      };
+      } else {
+        stats.failed++;
+      }
+    } catch {
+      stats.failed++;
     }
 
-
-    const parsed161 =
-      getResult(
-        result161,
-        "161ru"
-      );
-
-    const parsed93 =
-      getResult(
-        result93,
-        "93ru"
-      );
-
-    const parsedKrasdom =
-      getResult(
-        resultKrasdom,
-        "krasdom"
-      );
-
-    const parsedDomrf =
-      getResult(
-        resultDomrf,
-        "domrf"
-      );
-
-    const parsedDomclick =
-      getResult(
-        resultDomclick,
-        "domclick"
-      );
-
-    const parsedYandex =
-      getResult(
-        resultYandex,
-        "yandexrealty"
-      );
-
-    const parsedCian =
-      getResult(
-        resultCian,
-        "cian"
-      );
+    sourcesStats["161ru"] = stats;
+  }
 
 
-    let items = [
-      ...parsed161.items,
-      ...parsed93.items,
-      ...parsedKrasdom.items,
-      ...parsedDomrf.items,
-      ...parsedDomclick.items,
-      ...parsedYandex.items,
-      ...parsedCian.items
-    ];
+  /*
+   * ---------------------------------------------------------
+   * 93.RU
+   * ---------------------------------------------------------
+   */
+
+  {
+    const source = SOURCES["93ru"];
+    const stats = createStats(source);
+
+    try {
+      const page = await fetchText(source.url);
+
+      if (page.ok && page.text) {
+        const items = await parseGenericSource(
+          "93ru",
+          source,
+          page.text,
+          stats
+        );
+
+        for (const item of items) {
+          if (
+            isRecent(
+              item.publishedAt,
+              days
+            )
+          ) {
+            stats.recentCandidates++;
+            allItems.push(item);
+          } else {
+            stats.rejected++;
+          }
+        }
+      } else {
+        stats.failed++;
+      }
+    } catch {
+      stats.failed++;
+    }
+
+    sourcesStats["93ru"] = stats;
+  }
 
 
-    /*
-     * Дополнительная проверка возраста.
-     */
+  /*
+   * ---------------------------------------------------------
+   * КРАСДОМ
+   * ---------------------------------------------------------
+   */
 
-    const maxAge =
-      days * 86400000;
+  {
+    const source = SOURCES.krasdom;
+    const stats = createStats(source);
 
-    items =
-      items.filter(item => {
+    try {
+      const page = await fetchText(source.url);
 
-        const date =
-          new Date(
-            item.publishedAt
-          );
+      if (page.ok && page.text) {
+        const items = await parseGenericSource(
+          "krasdom",
+          source,
+          page.text,
+          stats
+        );
 
+        for (const item of items) {
+          if (
+            isRecent(
+              item.publishedAt,
+              days
+            )
+          ) {
+            stats.recentCandidates++;
+            allItems.push(item);
+          } else {
+            stats.rejected++;
+          }
+        }
+      } else {
+        stats.failed++;
+      }
+    } catch {
+      stats.failed++;
+    }
+
+    sourcesStats.krasdom = stats;
+  }
+
+
+  /*
+   * ---------------------------------------------------------
+   * ДОМ.РФ
+   * ---------------------------------------------------------
+   */
+
+  {
+    const source = SOURCES.domrf;
+    const stats = createStats(source);
+
+    try {
+      const page = await fetchText(source.url);
+
+      if (page.ok && page.text) {
+        const items = await parseGenericSource(
+          "domrf",
+          source,
+          page.text,
+          stats
+        );
+
+        for (const item of items) {
+          if (
+            isRecent(
+              item.publishedAt,
+              days
+            )
+          ) {
+            stats.recentCandidates++;
+            allItems.push(item);
+          } else {
+            stats.rejected++;
+          }
+        }
+      } else {
+        stats.failed++;
+      }
+    } catch {
+      stats.failed++;
+    }
+
+    sourcesStats.domrf = stats;
+  }
+
+
+  /*
+   * ---------------------------------------------------------
+   * ДОМКЛИК
+   * ---------------------------------------------------------
+   */
+
+  {
+    const source = SOURCES.domclick;
+    const stats = createStats(source);
+
+    try {
+      const items = await parseDomclick(stats);
+
+      for (const item of items) {
         if (
-          Number.isNaN(
-            date.getTime()
+          isRecent(
+            item.publishedAt,
+            days
           )
         ) {
-          return false;
+          stats.recentCandidates++;
+          allItems.push(item);
+        } else {
+          stats.rejected++;
         }
+      }
+    } catch {
+      stats.failed++;
+    }
 
-        const age =
-          Date.now() -
-          date.getTime();
-
-        return (
-          age >= 0 &&
-          age <= maxAge
-        );
-      });
-
-
-    items =
-      dedupeItems(items);
-
-
-    items =
-      filterCategory(
-        items,
-        category
-      );
-
-
-    items =
-      balanceItems(
-        items,
-        limit
-      );
-
-
-    const sources = {
-      "161ru":
-        parsed161.stats,
-
-      "93ru":
-        parsed93.stats,
-
-      krasdom:
-        parsedKrasdom.stats,
-
-      domrf:
-        parsedDomrf.stats,
-
-      domclick:
-        parsedDomclick.stats,
-
-      yandexrealty:
-        parsedYandex.stats,
-
-      cian:
-        parsedCian.stats
-    };
-
-
-    res.setHeader(
-      "Cache-Control",
-      "s-maxage=60, stale-while-revalidate=120"
-    );
-
-
-    return res.status(200).json({
-      ok: true,
-      category,
-      count: items.length,
-      items,
-      sources
-    });
-
-  } catch (error) {
-
-    return res.status(500).json({
-      ok: false,
-      error:
-        error?.message ||
-        String(error)
-    });
+    sourcesStats.domclick = stats;
   }
+
+
+  /*
+   * ---------------------------------------------------------
+   * ЯНДЕКС НЕДВИЖИМОСТЬ
+   * ---------------------------------------------------------
+   */
+
+  {
+    const source = SOURCES.yandexrealty;
+    const stats = createStats(source);
+
+    try {
+      const page = await fetchText(source.url);
+
+      if (page.ok && page.text) {
+        const items = await parseGenericSource(
+          "yandexrealty",
+          source,
+          page.text,
+          stats
+        );
+
+        for (const item of items) {
+          if (
+            isRecent(
+              item.publishedAt,
+              days
+            )
+          ) {
+            stats.recentCandidates++;
+            allItems.push(item);
+          } else {
+            stats.rejected++;
+          }
+        }
+      } else {
+        stats.failed++;
+      }
+    } catch {
+      stats.failed++;
+    }
+
+    sourcesStats.yandexrealty = stats;
+  }
+
+
+  /*
+   * ---------------------------------------------------------
+   * ЦИАН
+   * ---------------------------------------------------------
+   */
+
+  {
+    const source = SOURCES.cian;
+    const stats = createStats(source);
+
+    try {
+      const items = await parseCian(stats);
+
+      for (const item of items) {
+        if (
+          isRecent(
+            item.publishedAt,
+            days
+          )
+        ) {
+          stats.recentCandidates++;
+          allItems.push(item);
+        } else {
+          stats.rejected++;
+        }
+      }
+    } catch {
+      stats.failed++;
+    }
+
+    sourcesStats.cian = stats;
+  }
+
+
+  /*
+   * ---------------------------------------------------------
+   * ФИНАЛЬНАЯ ОБРАБОТКА
+   * ---------------------------------------------------------
+   */
+
+  /*
+   * Сначала фильтруем категорию.
+   * Это важно для 161.RU / 93.RU.
+   */
+
+  let filtered = filterCategory(
+    allItems,
+    category
+  );
+
+  /*
+   * Убираем дубли.
+   */
+
+  filtered = dedupeItems(
+    filtered,
+    category
+  );
+
+  /*
+   * Сортируем по дате.
+   */
+
+  filtered.sort(
+    (a, b) =>
+      new Date(b.publishedAt) -
+      new Date(a.publishedAt)
+  );
+
+  /*
+   * Балансируем источники.
+   */
+
+  filtered = balanceItems(
+    filtered,
+    limit
+  );
+
+  /*
+   * Финальная сортировка.
+   */
+
+  filtered.sort(
+    (a, b) =>
+      new Date(b.publishedAt) -
+      new Date(a.publishedAt)
+  );
+
+  /*
+   * Дополнительная страховка от дублей URL.
+   */
+
+  const seenUrls = new Set();
+
+  filtered = filtered.filter(item => {
+    const url = stripTracking(item.url);
+
+    if (seenUrls.has(url)) {
+      return false;
+    }
+
+    seenUrls.add(url);
+
+    return true;
+  });
+
+
+  /*
+   * ---------------------------------------------------------
+   * RESPONSE
+   * ---------------------------------------------------------
+   */
+
+  res.setHeader(
+    "Cache-Control",
+    "s-maxage=60, stale-while-revalidate=120"
+  );
+
+  return res.status(200).json({
+    ok: true,
+    category,
+    count: filtered.length,
+    items: filtered.slice(0, limit),
+    sources: sourcesStats
+  });
 };
