@@ -42,7 +42,7 @@ const SOURCE_CONFIG = {
 
 
 // ============================================================
-// HTML / URL HELPERS
+// HTML / URL
 // ============================================================
 
 function decodeHtmlEntities(str) {
@@ -198,9 +198,7 @@ function isWithinDays(date, days) {
   }
 
   const articleDate =
-    new Date(
-      date + "T00:00:00Z"
-    );
+    new Date(date + "T00:00:00Z");
 
   const now =
     new Date();
@@ -338,7 +336,7 @@ function extractCanonical(
 
 
 // ============================================================
-// JSON-LD DATE
+// JSON-LD
 // ============================================================
 
 function extractPublishedAt(html) {
@@ -407,7 +405,7 @@ function extractPublishedAt(html) {
       }
 
     } catch {
-      // Некоторые страницы имеют некорректный JSON-LD
+      // Некорректный JSON-LD
     }
   }
 
@@ -538,7 +536,7 @@ function getTopicCategory(title) {
 
 
 // ============================================================
-// ДОМ.РФ — РЕЛЕВАНТНОСТЬ
+// ДОМ.РФ — ФИЛЬТР РЕЛЕВАНТНОСТИ
 // ============================================================
 
 function isRelevantDomrfArticle(
@@ -546,138 +544,359 @@ function isRelevantDomrfArticle(
   description
 ) {
   const titleText =
-    String(title || "")
+    cleanText(title)
       .toLowerCase();
 
   const descriptionText =
-    String(description || "")
+    cleanText(description)
       .toLowerCase();
 
   const text =
-    titleText +
-    " " +
-    descriptionText;
+    `${titleText} ${descriptionText}`;
 
 
-  /*
-   * Основные темы,
-   * которые интересны риелтору,
-   * покупателю и продавцу недвижимости.
-   */
+  // ----------------------------------------------------------
+  // 1. Явно нерелевантные темы
+  // ----------------------------------------------------------
 
-  const strongKeywords = [
-    "недвижим",
-    "жиль",
-    "квартир",
-    "ипотек",
-    "ипотеч",
-    "новостро",
-    "застройщик",
-    "застройщики",
-    "девелопер",
-    "вторичн",
-    "аренд",
-    "долев",
-    "дольщик",
-    "маткапитал",
-    "материнск",
-    "семейн.*ипотек",
-    "ставк.*ипотек",
-    "рефинанс",
-    "росреестр",
-    "егрн",
-    "кадастр",
-    "ижс",
-    "земельн",
-    "земельный участок",
-    "загородн",
-    "домовлад",
-    "жкх",
-    "жку",
-    "коммунальн",
-    "капремонт",
-    "жилищн",
-    "налог.*недвиж",
-    "налог.*квартир",
-    "налог.*жиль",
-    "вычет.*ипотек",
-    "вычет.*квартир",
-    "господдерж.*жиль",
-    "господдерж.*ипотек"
+  const irrelevantPatterns = [
+    /пенси[яйи]/,
+    /пенсионер/,
+    /пенсионн/,
+    /пособи[яй]/,
+    /социальн.*выплат/,
+    /праздник/,
+    /выходн.*дн/,
+    /рабоч.*дн/,
+    /новогод/,
+    /ноябр/,
+    /декабр/,
+    /январ/,
+    /как отдыхаем/,
+    /отдыхать/,
+    /путешеств/,
+    /туризм/,
+    /погода/,
+    /рецепт/,
+    /еда/,
+    /продукт/,
+    /здоровь/,
+    /медицин/,
+    /лекарств/,
+    /спорт/,
+    /футбол/,
+    /пенсионн.*накоплен/,
+    /накопительн.*пенси/,
+    /стар.*вещ/,
+    /вещи.*выбрасыв/,
+    /мошенничеств.*телефон/,
+    /телефон.*мошенничеств/
   ];
 
 
+  const hasIrrelevantTopic =
+    irrelevantPatterns.some(
+      regex =>
+        regex.test(text)
+    );
+
+
+  /*
+   * Если одновременно есть сильный
+   * признак недвижимости — не отбрасываем.
+   *
+   * Например:
+   * "Пенсионер купил квартиру..."
+   *
+   * Такая новость всё-таки может быть
+   * полезна для риелтора.
+   */
+
+  const strongRealEstatePatterns = [
+    /недвижим/,
+    /квартир/,
+    /жиль/,
+    /ипотек/,
+    /ипотеч/,
+    /новостро/,
+    /застройщик/,
+    /застройщики/,
+    /девелопер/,
+    /вторичн/,
+    /аренд/,
+    /долев/,
+    /дольщик/,
+    /маткапитал/,
+    /материнск.*капитал/,
+    /росреестр/,
+    /егрн/,
+    /кадастр/,
+    /ижс/,
+    /земельн.*участ/,
+    /земельный участок/,
+    /домовлад/,
+    /жкх/,
+    /жку/,
+    /коммунальн.*услуг/,
+    /капремонт/
+  ];
+
+
+  const strongRealEstateCount =
+    strongRealEstatePatterns.filter(
+      regex =>
+        regex.test(text)
+    ).length;
+
+
+  /*
+   * Явно нерелевантная новость
+   * без недвижимости.
+   */
+
+  if (
+    hasIrrelevantTopic &&
+    strongRealEstateCount === 0
+  ) {
+    return false;
+  }
+
+
+  // ----------------------------------------------------------
+  // 2. Сильные признаки
+  // ----------------------------------------------------------
+
+  const strongKeywords = [
+    /недвижим/,
+    /жиль/,
+    /квартир/,
+    /ипотек/,
+    /ипотеч/,
+    /новостро/,
+    /застройщик/,
+    /застройщики/,
+    /девелопер/,
+    /вторичн/,
+    /аренд/,
+    /долев/,
+    /дольщик/,
+    /маткапитал/,
+    /материнск.*капитал/,
+    /семейн.*ипотек/,
+    /ставк.*ипотек/,
+    /рефинанс/,
+    /росреестр/,
+    /егрн/,
+    /кадастр/,
+    /ижс/,
+    /земельн/,
+    /земельный участок/,
+    /загородн/,
+    /домовлад/,
+    /жкх/,
+    /жку/,
+    /коммунальн/,
+    /капремонт/,
+    /жилищн/,
+    /налог.*недвиж/,
+    /налог.*квартир/,
+    /налог.*жиль/,
+    /вычет.*ипотек/,
+    /вычет.*квартир/,
+    /господдерж.*жиль/,
+    /господдерж.*ипотек/
+  ];
+
+
+  let score = 0;
+
+
   for (
-    const keyword of strongKeywords
+    const regex of strongKeywords
   ) {
     if (
-      new RegExp(
-        keyword,
-        "i"
-      ).test(text)
+      regex.test(titleText)
     ) {
-      return true;
+      score += 4;
+    } else if (
+      regex.test(descriptionText)
+    ) {
+      score += 2;
     }
   }
 
 
-  /*
-   * Контекстные темы.
-   *
-   * Например, "Госуслуги" сами по себе
-   * нам не интересны, но если новость
-   * одновременно говорит о Госуслугах
-   * и недвижимости — оставляем.
-   */
+  // ----------------------------------------------------------
+  // 3. Контекстные слова
+  // ----------------------------------------------------------
 
-  const contextualWords = [
-    "госуслуг",
-    "правительств",
-    "госдум",
-    "минфин",
-    "минстрой",
-    "налог",
-    "банк",
-    "банки",
-    "кредит",
-    "закон",
-    "регистрац"
+  const contextualKeywords = [
+    /госуслуг/,
+    /правительств/,
+    /госдум/,
+    /минфин/,
+    /минстрой/,
+    /налог/,
+    /банк/,
+    /банки/,
+    /кредит/,
+    /закон/,
+    /регистрац/,
+    /ограничен/,
+    /собственник/,
+    /собственност/,
+    /право пользован/
   ];
 
+
+  for (
+    const regex of contextualKeywords
+  ) {
+    if (
+      regex.test(text)
+    ) {
+      score += 1;
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // 4. Сильный контекст недвижимости
+  // ----------------------------------------------------------
 
   const realEstateContext = [
-    "жиль",
-    "квартир",
-    "недвижим",
-    "ипотек",
-    "дом",
-    "участк",
-    "застрой",
-    "аренд",
-    "егрн",
-    "росреестр",
-    "жку",
-    "жкх"
+    /недвижим/,
+    /квартир/,
+    /жиль/,
+    /ипотек/,
+    /дом/,
+    /участк/,
+    /застрой/,
+    /аренд/,
+    /егрн/,
+    /росреестр/,
+    /жку/,
+    /жкх/,
+    /собственник/,
+    /собственност/
   ];
 
 
+  let realEstateContextCount = 0;
+
+
+  for (
+    const regex of realEstateContext
+  ) {
+    if (
+      regex.test(text)
+    ) {
+      realEstateContextCount++;
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // 5. Специальные полезные темы
+  // ----------------------------------------------------------
+
+  /*
+   * Материнский капитал.
+   *
+   * Само слово "маткапитал"
+   * уже достаточно сильный признак,
+   * даже если в описании напрямую
+   * не написано "квартира".
+   */
+
+  if (
+    /маткапитал|материнск.*капитал/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+
+  /*
+   * ЖКХ / коммунальные услуги.
+   */
+
+  if (
+    /жкх|жку|коммунальн.*услуг/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+
+  /*
+   * ЕГРН / Росреестр.
+   */
+
+  if (
+    /егрн|росреестр|кадастр/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+
+  /*
+   * Собственник + регистрация/ограничения
+   * обычно относится к недвижимости.
+   */
+
+  if (
+    /собственник|собственност/.test(text) &&
+    /регистрац|ограничен|егрн|недвижим|квартир|жиль/.test(text)
+  ) {
+    return true;
+  }
+
+
+  // ----------------------------------------------------------
+  // 6. Финальное решение по score
+  // ----------------------------------------------------------
+
+  /*
+   * Достаточно сильный сигнал.
+   */
+
+  if (
+    score >= 4
+  ) {
+    return true;
+  }
+
+
+  /*
+   * Два и более признака недвижимости.
+   */
+
+  if (
+    realEstateContextCount >= 2
+  ) {
+    return true;
+  }
+
+
+  /*
+   * Контекстная тема + недвижимость.
+   */
+
   const hasContextual =
-    contextualWords.some(
-      word =>
-        text.includes(word)
-    );
-
-
-  const hasRealEstateContext =
-    realEstateContext.some(
-      word =>
-        text.includes(word)
+    contextualKeywords.some(
+      regex =>
+        regex.test(text)
     );
 
 
   if (
     hasContextual &&
-    hasRealEstateContext
+    realEstateContextCount >= 1
   ) {
     return true;
   }
@@ -764,6 +983,7 @@ async function fetchN1List(
   const unique =
     new Map();
 
+
   for (
     const url of links
   ) {
@@ -782,10 +1002,12 @@ async function fetchN1List(
       continue;
     }
 
+
     const dateMatch =
       clean.match(
         /\/(20\d{2})\/(\d{2})\/(\d{2})\//
       );
+
 
     const date =
       dateMatch
@@ -796,6 +1018,7 @@ async function fetchN1List(
           ].join("-")
         : "";
 
+
     unique.set(
       clean,
       {
@@ -804,6 +1027,7 @@ async function fetchN1List(
       }
     );
   }
+
 
   return Array.from(
     unique.values()
@@ -835,6 +1059,7 @@ function isKrasdomArticleUrl(
       return false;
     }
 
+
     if (
       !/^\/news\/[^/]+/i.test(
         u.pathname
@@ -842,6 +1067,7 @@ function isKrasdomArticleUrl(
     ) {
       return false;
     }
+
 
     if (
       u.pathname ===
@@ -851,6 +1077,7 @@ function isKrasdomArticleUrl(
     ) {
       return false;
     }
+
 
     return true;
 
@@ -877,6 +1104,7 @@ async function fetchKrasdomList(
   const unique =
     new Set();
 
+
   for (
     const url of links
   ) {
@@ -888,9 +1116,12 @@ async function fetchKrasdomList(
         clean
       )
     ) {
-      unique.add(clean);
+      unique.add(
+        clean
+      );
     }
   }
+
 
   return Array.from(
     unique
@@ -920,6 +1151,7 @@ function isDomclickArticleUrl(
     ) {
       return false;
     }
+
 
     const path =
       u.pathname;
@@ -976,6 +1208,7 @@ function isDomclickArticleUrl(
       }
     }
 
+
     return false;
 
   } catch {
@@ -1001,6 +1234,7 @@ async function fetchDomclickList(
   const unique =
     new Set();
 
+
   for (
     const url of links
   ) {
@@ -1012,9 +1246,12 @@ async function fetchDomclickList(
         clean
       )
     ) {
-      unique.add(clean);
+      unique.add(
+        clean
+      );
     }
   }
+
 
   return Array.from(
     unique
@@ -1042,17 +1279,9 @@ function isDomrfArticleUrl(
       u.hostname.toLowerCase();
 
 
-    /*
-     * URL.hostname автоматически
-     * переводит кириллический домен
-     * в punycode.
-     */
-
     const validHost =
       host ===
-        "xn--h1alcedd.xn--d1aqf.xn--p1ai" ||
-      host ===
-        "xn--h1alcedd.xn--d1aqf.xn--p1ai";
+      "xn--h1alcedd.xn--d1aqf.xn--p1ai";
 
 
     if (!validHost) {
@@ -1063,11 +1292,6 @@ function isDomrfArticleUrl(
     const path =
       u.pathname;
 
-
-    /*
-     * Принимаем ТОЛЬКО настоящий
-     * раздел новостей.
-     */
 
     if (
       !/^\/news\/.+/i.test(
@@ -1086,10 +1310,6 @@ function isDomrfArticleUrl(
     }
 
 
-    /*
-     * Исключаем служебные URL.
-     */
-
     if (
       /^\/news\/(rss|search|tag|tags|page|category)(\/|$)/i.test(
         path
@@ -1098,10 +1318,6 @@ function isDomrfArticleUrl(
       return false;
     }
 
-
-    /*
-     * Не принимаем файлы.
-     */
 
     if (
       /\.(xml|rss|json|jpg|jpeg|png|gif|webp|svg|pdf|css|js)$/i.test(
@@ -1137,6 +1353,7 @@ async function fetchDomrfList(
   const unique =
     new Set();
 
+
   for (
     const url of links
   ) {
@@ -1148,9 +1365,12 @@ async function fetchDomrfList(
         clean
       )
     ) {
-      unique.add(clean);
+      unique.add(
+        clean
+      );
     }
   }
+
 
   return Array.from(
     unique
@@ -1164,7 +1384,7 @@ async function fetchDomrfList(
 
 
 // ============================================================
-// ARTICLE VALIDATION
+// BAD TITLES
 // ============================================================
 
 function isBadArticleTitle(
@@ -1175,15 +1395,18 @@ function isBadArticleTitle(
       title
     );
 
+
   if (!t) {
     return true;
   }
+
 
   if (
     t.length < 15
   ) {
     return true;
   }
+
 
   const badTitles = [
     "все публикации",
@@ -1196,6 +1419,7 @@ function isBadArticleTitle(
     "главная"
   ];
 
+
   return badTitles.includes(
     t
   );
@@ -1203,7 +1427,7 @@ function isBadArticleTitle(
 
 
 // ============================================================
-// ARTICLE PARSER
+// ARTICLE
 // ============================================================
 
 async function parseArticle(
@@ -1222,15 +1446,18 @@ async function parseArticle(
         html
       );
 
+
     let description =
       extractDescription(
         html
       );
 
+
     let image =
       extractImage(
         html
       );
+
 
     let url =
       extractCanonical(
@@ -1244,18 +1471,16 @@ async function parseArticle(
         title
       );
 
+
     description =
       cleanText(
         description
       );
 
 
-    /*
-     * Дата из JSON-LD.
-     */
-
     let date = "";
     let publishedAt = "";
+
 
     const jsonLdDate =
       extractPublishedAt(
@@ -1272,11 +1497,6 @@ async function parseArticle(
     }
 
 
-    /*
-     * Если JSON-LD не найден —
-     * дата из URL кандидата.
-     */
-
     if (!date) {
       date =
         normalizeDate(
@@ -1284,11 +1504,6 @@ async function parseArticle(
         );
     }
 
-
-    /*
-     * Если даты все еще нет —
-     * ищем ее в HTML.
-     */
 
     if (!date) {
       date =
@@ -1298,45 +1513,38 @@ async function parseArticle(
     }
 
 
-    /*
-     * Будущие даты запрещаем.
-     */
-
     if (
       isFutureDate(date)
     ) {
-      return null;
+      return {
+        status: "rejected",
+        reason: "future_date"
+      };
     }
 
-
-    /*
-     * Без даты статья не проходит.
-     */
 
     if (!date) {
-      return null;
+      return {
+        status: "rejected",
+        reason: "no_date"
+      };
     }
 
-
-    /*
-     * Проверяем заголовок.
-     */
 
     if (
       isBadArticleTitle(
         title
       )
     ) {
-      return null;
+      return {
+        status: "rejected",
+        reason: "bad_title"
+      };
     }
 
 
     /*
-     * Для ДОМ.РФ оставляем только
-     * материалы, которые реально
-     * связаны с недвижимостью,
-     * ипотекой, жильем, ЖКХ,
-     * законодательством и т.д.
+     * Главный фильтр ДОМ.РФ.
      */
 
     if (
@@ -1346,15 +1554,12 @@ async function parseArticle(
         description
       )
     ) {
-      return null;
+      return {
+        status: "rejected",
+        reason: "irrelevant"
+      };
     }
 
-
-    /*
-     * ДОМ.РФ:
-     * canonical обязан оставаться
-     * внутри /news/.
-     */
 
     if (
       source.id === "domrf" &&
@@ -1362,13 +1567,12 @@ async function parseArticle(
         url
       )
     ) {
-      return null;
+      return {
+        status: "rejected",
+        reason: "bad_canonical"
+      };
     }
 
-
-    /*
-     * Картинка.
-     */
 
     if (image) {
       image =
@@ -1382,35 +1586,41 @@ async function parseArticle(
 
 
     return {
-      source:
-        source.name,
+      status: "ok",
 
-      sourceId:
-        source.id,
+      item: {
+        source:
+          source.name,
 
-      category:
-        source.category,
+        sourceId:
+          source.id,
 
-      title,
+        category:
+          source.category,
 
-      description,
+        title,
 
-      url:
-        normalizeUrl(
-          url
-        ),
+        description,
 
-      image,
+        url:
+          normalizeUrl(
+            url
+          ),
 
-      date,
+        image,
 
-      publishedAt:
-        publishedAt ||
-        `${date}T00:00:00Z`
+        date,
+
+        publishedAt:
+          publishedAt ||
+          `${date}T00:00:00Z`
+      }
     };
 
   } catch {
-    return null;
+    return {
+      status: "failed"
+    };
   }
 }
 
@@ -1484,6 +1694,8 @@ async function processSource(
 
         recentCandidates: 0,
 
+        rejected: 0,
+
         failed: 1,
 
         error:
@@ -1496,12 +1708,6 @@ async function processSource(
   }
 
 
-  /*
-   * Для источников, где дата уже
-   * известна на этапе списка,
-   * сразу отбрасываем старые статьи.
-   */
-
   const prepared =
     candidates.filter(
       candidate => {
@@ -1511,6 +1717,7 @@ async function processSource(
           return true;
         }
 
+
         if (
           isFutureDate(
             candidate.date
@@ -1518,6 +1725,7 @@ async function processSource(
         ) {
           return false;
         }
+
 
         return isWithinDays(
           candidate.date,
@@ -1530,12 +1738,8 @@ async function processSource(
   const items = [];
 
   let failed = 0;
+  let rejected = 0;
 
-
-  /*
-   * Ограничиваем количество
-   * одновременных запросов.
-   */
 
   const batchSize = 5;
 
@@ -1565,9 +1769,41 @@ async function processSource(
 
 
     for (
-      const item of results
+      const result of results
     ) {
-      if (!item) {
+      if (
+        !result
+      ) {
+        failed++;
+        continue;
+      }
+
+
+      if (
+        result.status ===
+        "failed"
+      ) {
+        failed++;
+        continue;
+      }
+
+
+      if (
+        result.status ===
+        "rejected"
+      ) {
+        rejected++;
+        continue;
+      }
+
+
+      const item =
+        result.item;
+
+
+      if (
+        !item
+      ) {
         failed++;
         continue;
       }
@@ -1578,6 +1814,7 @@ async function processSource(
           item.date
         )
       ) {
+        rejected++;
         continue;
       }
 
@@ -1588,6 +1825,7 @@ async function processSource(
           days
         )
       ) {
+        rejected++;
         continue;
       }
 
@@ -1597,11 +1835,6 @@ async function processSource(
       );
     }
 
-
-    /*
-     * Получили достаточно
-     * свежих материалов.
-     */
 
     if (
       items.length >=
@@ -1654,6 +1887,8 @@ async function processSource(
       recentCandidates:
         prepared.length,
 
+      rejected,
+
       failed
     }
   };
@@ -1684,15 +1919,12 @@ function removeDuplicates(
         item.url
       );
 
+
     const title =
       normalizeTitle(
         item.title
       );
 
-
-    /*
-     * Дубликат URL.
-     */
 
     if (
       url &&
@@ -1703,13 +1935,6 @@ function removeDuplicates(
       continue;
     }
 
-
-    /*
-     * Дубликат заголовка.
-     *
-     * Например одна и та же
-     * новость 93.RU / 161.RU.
-     */
 
     if (
       title &&
@@ -1746,7 +1971,7 @@ function removeDuplicates(
 
 
 // ============================================================
-// CATEGORY FILTER
+// CATEGORY
 // ============================================================
 
 function matchesCategory(
@@ -1761,10 +1986,6 @@ function matchesCategory(
   }
 
 
-  /*
-   * Краснодар.
-   */
-
   if (
     category ===
     "krasnodar"
@@ -1775,10 +1996,6 @@ function matchesCategory(
     );
   }
 
-
-  /*
-   * Ростов.
-   */
 
   if (
     category ===
@@ -1846,7 +2063,7 @@ function matchesCategory(
 
 
 // ============================================================
-// MAIN HANDLER
+// HANDLER
 // ============================================================
 
 module.exports =
@@ -1898,11 +2115,6 @@ module.exports =
         sources;
 
 
-      /*
-       * Для региональных фильтров
-       * не загружаем ненужные источники.
-       */
-
       if (
         category ===
         "krasnodar"
@@ -1928,10 +2140,6 @@ module.exports =
           );
       }
 
-
-      /*
-       * Загружаем источники параллельно.
-       */
 
       const results =
         await Promise.all(
@@ -1966,10 +2174,6 @@ module.exports =
       }
 
 
-      /*
-       * Тематический фильтр.
-       */
-
       allItems =
         allItems.filter(
           item =>
@@ -1980,20 +2184,11 @@ module.exports =
         );
 
 
-      /*
-       * Убираем дубли.
-       */
-
       allItems =
         removeDuplicates(
           allItems
         );
 
-
-      /*
-       * Сортируем от новых
-       * к старым.
-       */
 
       allItems.sort(
         (a, b) => {
@@ -2003,11 +2198,13 @@ module.exports =
               `${a.date}T00:00:00Z`
             ).getTime();
 
+
           const dateB =
             new Date(
               b.publishedAt ||
               `${b.date}T00:00:00Z`
             ).getTime();
+
 
           return (
             dateB -
@@ -2016,10 +2213,6 @@ module.exports =
         }
       );
 
-
-      /*
-       * Финальный лимит.
-       */
 
       allItems =
         allItems.slice(
