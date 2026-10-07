@@ -97,7 +97,9 @@ export default async function handler(req, res) {
 
     try {
 
-      if (!url) return "";
+      if (!url) {
+        return "";
+      }
 
       return new URL(
         url,
@@ -130,12 +132,16 @@ export default async function handler(req, res) {
         "yclid",
         "from",
         "ref",
-        "erid"
+        "erid",
+        "fbclid"
       ].forEach(param => {
+
         u.searchParams.delete(param);
+
       });
 
-      return u.href.replace(/\/+$/, "");
+      return u.href
+        .replace(/\/+$/, "");
 
     } catch {
 
@@ -152,13 +158,17 @@ export default async function handler(req, res) {
 
   function normalizeDate(raw) {
 
-    if (!raw) return "";
+    if (!raw) {
+      return "";
+    }
 
     const value = String(raw)
       .trim()
       .replace(/\u00a0/g, " ");
 
-    if (!value) return "";
+    if (!value) {
+      return "";
+    }
 
 
     let match = value.match(
@@ -272,14 +282,18 @@ export default async function handler(req, res) {
 
   function extractDateFromUrl(url) {
 
-    if (!url) return "";
+    if (!url) {
+      return "";
+    }
 
     const match =
       String(url).match(
         /\/(20\d{2})\/(\d{2})\/(\d{2})\//
       );
 
-    if (!match) return "";
+    if (!match) {
+      return "";
+    }
 
     return `${match[1]}-${match[2]}-${match[3]}`;
 
@@ -288,7 +302,9 @@ export default async function handler(req, res) {
 
   function extractDateFromText(text) {
 
-    if (!text) return "";
+    if (!text) {
+      return "";
+    }
 
     const clean =
       cleanText(text);
@@ -311,14 +327,18 @@ export default async function handler(req, res) {
       const match =
         clean.match(pattern);
 
-      if (!match) continue;
+      if (!match) {
+        continue;
+      }
 
       const date =
         normalizeDate(
           match[0]
         );
 
-      if (date) return date;
+      if (date) {
+        return date;
+      }
 
     }
 
@@ -330,7 +350,9 @@ export default async function handler(req, res) {
 
   function extractPublishedAtFromText(text) {
 
-    if (!text) return "";
+    if (!text) {
+      return "";
+    }
 
     const clean =
       cleanText(text);
@@ -340,7 +362,9 @@ export default async function handler(req, res) {
         /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/i
       );
 
-    if (!match) return "";
+    if (!match) {
+      return "";
+    }
 
     const dt =
       new Date(
@@ -373,7 +397,9 @@ export default async function handler(req, res) {
 
   function extractMeta(html, key) {
 
-    if (!html) return "";
+    if (!html) {
+      return "";
+    }
 
     const escaped =
       key.replace(
@@ -392,9 +418,11 @@ export default async function handler(req, res) {
       html.match(regex);
 
     if (match) {
+
       return cleanText(
         match[1]
       );
+
     }
 
 
@@ -415,14 +443,16 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     JSON-LD DATE
+     JSON-LD
   ========================================================= */
 
   function extractJsonLdDates(html) {
 
     const result = [];
 
-    if (!html) return result;
+    if (!html) {
+      return result;
+    }
 
 
     const regex =
@@ -441,8 +471,9 @@ export default async function handler(req, res) {
           .replace(/-->/g, "")
           .trim();
 
-
-      if (!raw) continue;
+      if (!raw) {
+        continue;
+      }
 
 
       try {
@@ -471,27 +502,33 @@ export default async function handler(req, res) {
           if (
             obj.datePublished
           ) {
+
             result.push(
               obj.datePublished
             );
+
           }
 
 
           if (
             obj.dateCreated
           ) {
+
             result.push(
               obj.dateCreated
             );
+
           }
 
 
           if (
             obj.uploadDate
           ) {
+
             result.push(
               obj.uploadDate
             );
+
           }
 
 
@@ -517,27 +554,33 @@ export default async function handler(req, res) {
               if (
                 item.datePublished
               ) {
+
                 result.push(
                   item.datePublished
                 );
+
               }
 
 
               if (
                 item.dateCreated
               ) {
+
                 result.push(
                   item.dateCreated
                 );
+
               }
 
 
               if (
                 item.uploadDate
               ) {
+
                 result.push(
                   item.uploadDate
                 );
+
               }
 
             }
@@ -575,7 +618,9 @@ export default async function handler(req, res) {
       const date =
         normalizeDate(raw);
 
-      if (date) return date;
+      if (date) {
+        return date;
+      }
 
     }
 
@@ -586,7 +631,6 @@ export default async function handler(req, res) {
         "article:published_time"
       );
 
-
     if (ogDate) {
 
       const date =
@@ -594,7 +638,9 @@ export default async function handler(req, res) {
           ogDate
         );
 
-      if (date) return date;
+      if (date) {
+        return date;
+      }
 
     }
 
@@ -621,12 +667,16 @@ export default async function handler(req, res) {
           name
         );
 
-      if (!value) continue;
+      if (!value) {
+        continue;
+      }
 
       const date =
         normalizeDate(value);
 
-      if (date) return date;
+      if (date) {
+        return date;
+      }
 
     }
 
@@ -635,7 +685,6 @@ export default async function handler(req, res) {
       extractDateFromUrl(
         candidate.url || ""
       );
-
 
     if (urlDate) {
       return urlDate;
@@ -652,7 +701,9 @@ export default async function handler(req, res) {
           candidate.date
         );
 
-      if (date) return date;
+      if (date) {
+        return date;
+      }
 
     }
 
@@ -669,7 +720,9 @@ export default async function handler(req, res) {
     days
   ) {
 
-    if (!date) return false;
+    if (!date) {
+      return false;
+    }
 
     const parsed =
       new Date(
@@ -711,7 +764,9 @@ export default async function handler(req, res) {
 
   function extractTitle(html) {
 
-    if (!html) return "";
+    if (!html) {
+      return "";
+    }
 
 
     let value =
@@ -720,15 +775,15 @@ export default async function handler(req, res) {
         "og:title"
       );
 
-
-    if (value) return value;
+    if (value) {
+      return value;
+    }
 
 
     let match =
       html.match(
         /<h1[^>]*>([\s\S]*?)<\/h1>/i
       );
-
 
     if (match) {
 
@@ -737,7 +792,9 @@ export default async function handler(req, res) {
           match[1]
         );
 
-      if (value) return value;
+      if (value) {
+        return value;
+      }
 
     }
 
@@ -746,7 +803,6 @@ export default async function handler(req, res) {
       html.match(
         /<title[^>]*>([\s\S]*?)<\/title>/i
       );
-
 
     return match
       ? cleanText(match[1])
@@ -757,7 +813,9 @@ export default async function handler(req, res) {
 
   function extractDescription(html) {
 
-    if (!html) return "";
+    if (!html) {
+      return "";
+    }
 
 
     let value =
@@ -766,8 +824,9 @@ export default async function handler(req, res) {
         "og:description"
       );
 
-
-    if (value) return value;
+    if (value) {
+      return value;
+    }
 
 
     value =
@@ -776,15 +835,15 @@ export default async function handler(req, res) {
         "description"
       );
 
-
-    if (value) return value;
+    if (value) {
+      return value;
+    }
 
 
     const match =
       html.match(
         /<p[^>]*>([\s\S]*?)<\/p>/i
       );
-
 
     if (match) {
 
@@ -796,7 +855,9 @@ export default async function handler(req, res) {
       if (
         value.length > 30
       ) {
+
         return value;
+
       }
 
     }
@@ -812,7 +873,9 @@ export default async function handler(req, res) {
     baseUrl
   ) {
 
-    if (!html) return "";
+    if (!html) {
+      return "";
+    }
 
 
     let image =
@@ -860,7 +923,9 @@ export default async function handler(req, res) {
     baseUrl
   ) {
 
-    if (!html) return "";
+    if (!html) {
+      return "";
+    }
 
 
     let match =
@@ -879,7 +944,9 @@ export default async function handler(req, res) {
     }
 
 
-    if (!match) return "";
+    if (!match) {
+      return "";
+    }
 
 
     return normalizeUrl(
@@ -973,15 +1040,17 @@ export default async function handler(req, res) {
           source.listUrl
         );
 
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       url =
         normalizeUrl(url);
 
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       let valid = false;
@@ -1009,7 +1078,9 @@ export default async function handler(req, res) {
       }
 
 
-      if (!valid) continue;
+      if (!valid) {
+        continue;
+      }
 
 
       if (
@@ -1082,15 +1153,17 @@ export default async function handler(req, res) {
           source.listUrl
         );
 
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       url =
         normalizeUrl(url);
 
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       if (
@@ -1168,13 +1241,6 @@ export default async function handler(req, res) {
     const seen = new Set();
 
 
-    /*
-     * Домклик может отдавать ссылки
-     * не только через /novosti/,
-     * поэтому сначала собираем ВСЕ
-     * ссылки blog.domclick.ru.
-     */
-
     const regex =
       /href\s*=\s*["']([^"']+)["']/gi;
 
@@ -1191,49 +1257,67 @@ export default async function handler(req, res) {
           source.listUrl
         );
 
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       url =
         normalizeUrl(url);
 
+      if (!url) {
+        continue;
+      }
 
-      if (!url) continue;
+
+      let parsed;
+
+      try {
+
+        parsed =
+          new URL(url);
+
+      } catch {
+
+        continue;
+
+      }
 
 
-      /*
-       * Только блог Домклик.
-       */
+      const host =
+        parsed.hostname.toLowerCase();
+
 
       if (
-        !/^https:\/\/blog\.domclick\.ru\//i
-          .test(url)
+        host !== "blog.domclick.ru"
       ) {
         continue;
       }
 
 
-      /*
-       * Исключаем служебные страницы.
-       */
+      const path =
+        parsed.pathname;
+
 
       if (
-        /\/(tag|category|page|author|search|feed|novosti\/?$)/i
-          .test(url)
+        path === "/novosti" ||
+        path === "/novosti/"
       ) {
         continue;
       }
 
 
-      /*
-       * Исключаем картинки,
-       * файлы и технические ссылки.
-       */
+      if (
+        /\/(tag|category|page|author|search|feed|login|account)(\/|$)/i
+          .test(path)
+      ) {
+        continue;
+      }
+
 
       if (
         /\.(jpg|jpeg|png|gif|svg|webp|pdf|xml|json)$/i
-          .test(url)
+          .test(path)
       ) {
         continue;
       }
@@ -1259,7 +1343,7 @@ export default async function handler(req, res) {
 
 
       if (
-        links.length >= 30
+        links.length >= 40
       ) {
         break;
       }
@@ -1275,6 +1359,80 @@ export default async function handler(req, res) {
   /* =========================================================
      ДОМ.РФ
   ========================================================= */
+
+  function isDomrfHost(
+    hostname
+  ) {
+
+    if (!hostname) {
+      return false;
+    }
+
+
+    const host =
+      String(hostname)
+        .toLowerCase()
+        .replace(
+          /\.$/,
+          ""
+        );
+
+
+    /*
+     * URL() в Node может преобразовать
+     * кириллический домен в punycode.
+     *
+     * Поэтому проверяем сразу несколько
+     * вариантов.
+     */
+
+    const allowedHosts = [
+
+      "спроси.дом.рф",
+
+      "xn--80aqf.xn--d1aqf.xn--p1ai",
+
+      "xn--80aqf.xn--d1aqf.xn--p1ai"
+
+    ];
+
+
+    if (
+      allowedHosts.includes(host)
+    ) {
+      return true;
+    }
+
+
+    if (
+      host.endsWith(
+        ".дом.рф"
+      )
+    ) {
+      return true;
+    }
+
+
+    /*
+     * Дополнительно разрешаем любой
+     * поддомен дом.рф в punycode,
+     * если он действительно относится
+     * к зоне .xn--d1aqf.xn--p1ai
+     */
+
+    if (
+      host.endsWith(
+        ".xn--d1aqf.xn--p1ai"
+      )
+    ) {
+      return true;
+    }
+
+
+    return false;
+
+  }
+
 
   async function fetchDomrfList(
     source
@@ -1300,13 +1458,9 @@ export default async function handler(req, res) {
       (match = regex.exec(html))
     ) {
 
-      let raw =
+      const raw =
         match[1];
 
-
-      /*
-       * Сначала пробуем обычный URL.
-       */
 
       let url =
         absoluteUrl(
@@ -1314,75 +1468,57 @@ export default async function handler(req, res) {
           source.listUrl
         );
 
-
-      /*
-       * Иногда русскоязычные URL
-       * могут быть записаны в HTML
-       * в percent-encoded виде.
-       */
-
-      if (!url) continue;
+      if (!url) {
+        continue;
+      }
 
 
       url =
         normalizeUrl(url);
 
+      if (!url) {
+        continue;
+      }
 
-      if (!url) continue;
 
+      let parsed;
 
-      /*
-       * ВАЖНО:
-       * не ограничиваемся только /news/.
-       *
-       * ДОМ.РФ может использовать
-       * разные внутренние маршруты
-       * для публикаций.
-       */
+      try {
 
-      const host =
-        (() => {
+        parsed =
+          new URL(url);
 
-          try {
-            return new URL(url).hostname;
-          } catch {
-            return "";
-          }
+      } catch {
 
-        })();
+        continue;
+
+      }
 
 
       if (
-        !(
-          host === "спроси.дом.рф" ||
-          host.endsWith(
-            ".дом.рф"
-          ) ||
-          host ===
-            "xn--80az8a.xn--d1aqf.xn--p1ai"
+        !isDomrfHost(
+          parsed.hostname
         )
       ) {
-
         continue;
-
       }
 
 
-      /*
-       * Исключаем сам раздел,
-       * навигацию и служебные страницы.
-       */
+      const path =
+        parsed.pathname;
+
 
       if (
-        /\/news\/?$/i.test(url)
+        path === "/news" ||
+        path === "/news/"
       ) {
         continue;
       }
 
 
       if (
-        /\/(tag|category|page|author|search|feed|login|account)\//i
-          .test(url)
+        /\/(tag|category|page|author|search|feed|login|account)(\/|$)/i
+          .test(path)
       ) {
         continue;
       }
@@ -1390,7 +1526,7 @@ export default async function handler(req, res) {
 
       if (
         /\.(jpg|jpeg|png|gif|svg|webp|pdf|xml|json)$/i
-          .test(url)
+          .test(path)
       ) {
         continue;
       }
@@ -1658,8 +1794,8 @@ export default async function handler(req, res) {
 
 
       /*
-       * 161 / 93:
-       * дата уже известна из URL.
+       * Для 161.RU / 93.RU
+       * дата известна из URL.
        */
 
       if (
@@ -1680,8 +1816,9 @@ export default async function handler(req, res) {
 
 
       /*
-       * Источники, где дату надо
-       * получить со страницы статьи.
+       * Для остальных источников
+       * дату получаем со страницы
+       * самой статьи.
        */
 
       const articleDateSource =
@@ -1698,8 +1835,8 @@ export default async function handler(req, res) {
           candidates.slice(
             0,
             Math.max(
-              limit * 2,
-              20
+              limit * 3,
+              25
             )
           );
 
@@ -1750,11 +1887,6 @@ export default async function handler(req, res) {
                   }
 
 
-                  /*
-                   * Для новых источников
-                   * обязательно нужна дата.
-                   */
-
                   if (
                     articleDateSource &&
                     !article.date
@@ -1796,7 +1928,8 @@ export default async function handler(req, res) {
 
 
         for (
-          const item of results
+          const item
+          of results
         ) {
 
           if (item) {
@@ -1811,8 +1944,7 @@ export default async function handler(req, res) {
 
 
         /*
-         * Достаточно материалов —
-         * прекращаем загрузку.
+         * Достаточно материалов.
          */
 
         if (
@@ -1967,13 +2099,9 @@ export default async function handler(req, res) {
     sources = [
 
       SOURCE_CONFIG["161ru"],
-
       SOURCE_CONFIG["93ru"],
-
       SOURCE_CONFIG["krasdom"],
-
       SOURCE_CONFIG["domclick"],
-
       SOURCE_CONFIG["domrf"]
 
     ];
@@ -2001,7 +2129,6 @@ export default async function handler(req, res) {
     sources = [
 
       SOURCE_CONFIG["93ru"],
-
       SOURCE_CONFIG["krasdom"]
 
     ];
@@ -2021,13 +2148,9 @@ export default async function handler(req, res) {
     sources = [
 
       SOURCE_CONFIG["161ru"],
-
       SOURCE_CONFIG["93ru"],
-
       SOURCE_CONFIG["krasdom"],
-
       SOURCE_CONFIG["domclick"],
-
       SOURCE_CONFIG["domrf"]
 
     ];
@@ -2050,12 +2173,11 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     LOAD
+     LOAD SOURCES
   ========================================================= */
 
   const results =
     await Promise.all(
-
       sources.map(
         source =>
           processSource(
@@ -2064,7 +2186,6 @@ export default async function handler(req, res) {
             days
           )
       )
-
     );
 
 
@@ -2116,6 +2237,60 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
+     SORT BEFORE DUPLICATE REMOVAL
+     ---------------------------------
+     Более свежая версия новости
+     должна иметь приоритет.
+  ========================================================= */
+
+  allItems.sort(
+    (a, b) => {
+
+      const da =
+        new Date(
+          a.date ||
+          "1970-01-01"
+        ).getTime();
+
+      const db =
+        new Date(
+          b.date ||
+          "1970-01-01"
+        ).getTime();
+
+      if (db !== da) {
+        return db - da;
+      }
+
+
+      /*
+       * Если дата одинаковая,
+       * предпочитаем федеральные
+       * источники / более крупные
+       * источники.
+       */
+
+      const priority = {
+
+        "161ru": 5,
+        "93ru": 5,
+        "krasdom": 4,
+        "domclick": 3,
+        "domrf": 3
+
+      };
+
+
+      return (
+        (priority[b.sourceId] || 0) -
+        (priority[a.sourceId] || 0)
+      );
+
+    }
+  );
+
+
+  /* =========================================================
      DUPLICATE REMOVAL
   ========================================================= */
 
@@ -2140,10 +2315,7 @@ export default async function handler(req, res) {
 
 
     /*
-     * Нормализуем заголовок,
-     * чтобы 161.RU и 93.RU
-     * с одинаковой новостью
-     * считались одним материалом.
+     * Нормализация заголовка.
      */
 
     const titleKey =
@@ -2162,9 +2334,15 @@ export default async function handler(req, res) {
         .trim();
 
 
+    /*
+     * Проверка URL.
+     */
+
     if (
       urlKey &&
-      seenUrls.has(urlKey)
+      seenUrls.has(
+        urlKey
+      )
     ) {
 
       continue;
@@ -2172,9 +2350,19 @@ export default async function handler(req, res) {
     }
 
 
+    /*
+     * Проверка полного совпадения
+     * заголовка.
+     *
+     * Это убирает одинаковые статьи
+     * 161.RU и 93.RU.
+     */
+
     if (
       titleKey &&
-      seenTitles.has(titleKey)
+      seenTitles.has(
+        titleKey
+      )
     ) {
 
       continue;
@@ -2208,7 +2396,7 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     SORT
+     FINAL SORT
   ========================================================= */
 
   unique.sort(
