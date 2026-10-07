@@ -343,10 +343,6 @@ async function fetchText(
 
     };
 
-    // ВАЖНО:
-    // Referer с кириллицей нельзя напрямую передавать
-    // в Headers. Для ДОМ.РФ используется punycode URL.
-
     if (options.referer) {
       headers["Referer"] =
         options.referer;
@@ -1107,9 +1103,7 @@ function extractDomrfLinks(html) {
 
       const isDomrf =
         hostname ===
-          "xn--h1alcedd.xn--d1aqf.xn--p1ai" ||
-        hostname ===
-          "xn--h1alcedd.xn--d1aqf.xn--p1ai";
+        "xn--h1alcedd.xn--d1aqf.xn--p1ai";
 
       if (!isDomrf) {
         continue;
@@ -1158,17 +1152,27 @@ function isDomclickArticleUrl(url) {
       new URL(url);
 
     if (
-      u.hostname !==
+      u.hostname.toLowerCase() !==
       "blog.domclick.ru"
     ) {
       return false;
     }
 
+    /*
+      Домклик использует несколько разделов:
+
+      /nedvizhimost/post/...
+      /ipoteka/post/...
+      /finansy/post/...
+      /zhkh/post/...
+      /novosti/post/...
+      и т.д.
+
+      Поэтому не ограничиваемся только /novosti/.
+    */
+
     return (
-      /^\/novosti\/post\/[^/]+/i.test(
-        u.pathname
-      ) ||
-      /^\/novosti\/[^/]+/i.test(
+      /\/post\/[^/]+/i.test(
         u.pathname
       )
     );
@@ -1183,48 +1187,8 @@ function isDomclickArticleUrl(url) {
 
 
 // ======================================================
-// DOMCLICK TELEGRAM PARSER
+// TELEGRAM DATE
 // ======================================================
-
-function extractTelegramImage(
-  block
-) {
-
-  const patterns = [
-
-    /background-image:url\(['"]?([^'")]+)['"]?\)/i,
-
-    /<img[^>]+src=["']([^"']+)["']/i,
-
-    /<img[^>]+data-src=["']([^"']+)["']/i
-
-  ];
-
-  for (
-    const pattern
-    of patterns
-  ) {
-
-    const match =
-      block.match(pattern);
-
-    if (
-      match &&
-      match[1]
-    ) {
-
-      return decodeHtml(
-        match[1]
-      );
-
-    }
-
-  }
-
-  return "";
-
-}
-
 
 function extractTelegramDate(
   block
@@ -1233,6 +1197,8 @@ function extractTelegramDate(
   const patterns = [
 
     /<time[^>]+datetime=["']([^"']+)["']/i,
+
+    /<a[^>]+class=["'][^"']*tgme_widget_message_date[^"']*["'][^>]*>[\s\S]*?<time[^>]+datetime=["']([^"']+)["']/i,
 
     /datetime=["']([^"']+)["']/i
 
@@ -1268,6 +1234,10 @@ function extractTelegramDate(
 
 }
 
+
+// ======================================================
+// TELEGRAM TEXT
+// ======================================================
 
 function extractTelegramText(
   block
@@ -1307,14 +1277,64 @@ function extractTelegramText(
 }
 
 
-function extractTelegramArticleLinks(
+// ======================================================
+// TELEGRAM IMAGE
+// ======================================================
+
+function extractTelegramImage(
+  block
+) {
+
+  const patterns = [
+
+    /background-image:url\(['"]?([^'")]+)['"]?\)/i,
+
+    /style=["'][^"']*background-image:\s*url\(['"]?([^'")]+)['"]?\)/i,
+
+    /<img[^>]+src=["']([^"']+)["']/i,
+
+    /<img[^>]+data-src=["']([^"']+)["']/i
+
+  ];
+
+  for (
+    const pattern
+    of patterns
+  ) {
+
+    const match =
+      block.match(pattern);
+
+    if (
+      match &&
+      match[1]
+    ) {
+
+      return decodeHtml(
+        match[1]
+      );
+
+    }
+
+  }
+
+  return "";
+
+}
+
+
+// ======================================================
+// TELEGRAM ARTICLE LINKS
+// ======================================================
+
+function extractDomclickLinksFromBlock(
   block
 ) {
 
   const links =
     extractLinks(
       block,
-      "https://t.me/s/domclick"
+      SOURCES.domclick.telegramUrl
     );
 
   const result = [];
@@ -1325,19 +1345,24 @@ function extractTelegramArticleLinks(
   ) {
 
     if (
-      isDomclickArticleUrl(
+      !isDomclickArticleUrl(
         item.url
       )
     ) {
-
-      result.push({
-        url:
-          item.url,
-        text:
-          item.text
-      });
-
+      continue;
     }
+
+    result.push({
+
+      url:
+        stripQuery(
+          item.url
+        ),
+
+      text:
+        item.text
+
+    });
 
   }
 
@@ -1346,39 +1371,20 @@ function extractTelegramArticleLinks(
 }
 
 
+// ======================================================
+// TELEGRAM TITLE
+// ======================================================
+
 function getTelegramTitle(
-  text,
-  articleLinks
+  text
 ) {
-
-  if (
-    articleLinks.length &&
-    articleLinks[0].text
-  ) {
-
-    const linkText =
-      cleanText(
-        articleLinks[0].text
-      );
-
-    if (
-      linkText.length >= 20 &&
-      !/^читать|подробнее|узнать/i.test(
-        linkText
-      )
-    ) {
-
-      return linkText;
-
-    }
-
-  }
 
   const lines =
     String(text || "")
       .split(/\n+/)
-      .map(line =>
-        cleanText(line)
+      .map(
+        line =>
+          cleanText(line)
       )
       .filter(Boolean);
 
@@ -1388,7 +1394,7 @@ function getTelegramTitle(
   ) {
 
     if (
-      line.length < 20
+      line.length < 10
     ) {
       continue;
     }
@@ -1400,15 +1406,21 @@ function getTelegramTitle(
     }
 
     if (
-      /читать|подробнее|журнал домклик|подписаться/i.test(line) &&
-      line.length < 80
+      /^подписывайтесь/i.test(line)
+    ) {
+      continue;
+    }
+
+    if (
+      /^домклик/i.test(line) &&
+      line.length < 30
     ) {
       continue;
     }
 
     return line
       .replace(
-        /^[^\p{L}\p{N}«"]+/u,
+        /^[^\p{L}\p{N}«"«]+/u,
         ""
       )
       .trim();
@@ -1420,27 +1432,80 @@ function getTelegramTitle(
 }
 
 
+// ======================================================
+// TELEGRAM POST BLOCKS
+// ======================================================
+
+function extractTelegramPostBlocks(
+  html
+) {
+
+  const blocks = [];
+
+  /*
+    В Telegram структура может немного меняться.
+
+    Старый вариант с подсчетом закрывающих div
+    был слишком жестким.
+
+    Здесь используем начало следующего
+    tgme_widget_message_wrap как границу
+    текущего сообщения.
+  */
+
+  const regex =
+    /<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][^>]*>[\s\S]*?(?=<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][^>]*>|<\/body>|$)/gi;
+
+  let match;
+
+  while (
+    (match = regex.exec(html))
+  ) {
+
+    const block =
+      match[0];
+
+    if (
+      block &&
+      block.length > 100
+    ) {
+
+      blocks.push(
+        block
+      );
+
+    }
+
+  }
+
+  return blocks;
+
+}
+
+
+// ======================================================
+// TELEGRAM POSTS
+// ======================================================
+
 function extractDomclickTelegramPosts(
   html
 ) {
 
   const posts = [];
 
-  // Telegram groups each post in tgme_widget_message_wrap.
-  const blockRegex =
-    /<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][\s\S]*?<\/div>\s*<\/div>\s*<\/div>/gi;
+  const blocks =
+    extractTelegramPostBlocks(
+      html
+    );
 
-  let match;
 
-  while (
-    (match = blockRegex.exec(html))
+  for (
+    const block
+    of blocks
   ) {
 
-    const block =
-      match[0];
-
     const articleLinks =
-      extractTelegramArticleLinks(
+      extractDomclickLinksFromBlock(
         block
       );
 
@@ -1450,43 +1515,79 @@ function extractDomclickTelegramPosts(
       continue;
     }
 
+
     const date =
       extractTelegramDate(
         block
       );
+
+    if (!date) {
+      continue;
+    }
+
 
     const text =
       extractTelegramText(
         block
       );
 
-    const title =
-      getTelegramTitle(
-        text,
-        articleLinks
-      );
-
-    if (
-      !title ||
-      !date
-    ) {
+    if (!text) {
       continue;
     }
+
+
+    const title =
+      getTelegramTitle(
+        text
+      );
+
+    if (!title) {
+      continue;
+    }
+
 
     const image =
       extractTelegramImage(
         block
       );
 
+
+    let description =
+      text
+        .replace(
+          title,
+          ""
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+
+    /*
+      Не оставляем в description технические
+      рекламные хвосты Telegram.
+    */
+
+    description =
+      description
+        .replace(
+          /🏠\s*Домклик в MAX.*$/i,
+          ""
+        )
+        .replace(
+          /Подписывайтесь.*$/i,
+          ""
+        )
+        .trim();
+
+
     posts.push({
 
       title,
 
-      description:
-        text
-          .replace(title, "")
-          .replace(/\s+/g, " ")
-          .trim(),
+      description,
 
       url:
         articleLinks[0].url,
@@ -1499,13 +1600,37 @@ function extractDomclickTelegramPosts(
 
   }
 
-  return posts;
+
+  /*
+    Иногда одно и то же сообщение содержит
+    несколько ссылок на одну статью.
+  */
+
+  const unique =
+    new Map();
+
+  for (
+    const post
+    of posts
+  ) {
+
+    unique.set(
+      post.url,
+      post
+    );
+
+  }
+
+
+  return Array.from(
+    unique.values()
+  );
 
 }
 
 
 // ======================================================
-// DOMCLICK TELEGRAM
+// DOMCLICK
 // ======================================================
 
 async function processDomclick(
@@ -1528,8 +1653,9 @@ async function processDomclick(
 
   const items = [];
 
+
   // ----------------------------------------------------
-  // MAIN BLOG — EXPECTED 401
+  // DIRECT BLOG
   // ----------------------------------------------------
 
   try {
@@ -1600,10 +1726,12 @@ async function processDomclick(
         }
       );
 
+
     const posts =
       extractDomclickTelegramPosts(
         response.text
       );
+
 
     diagnostics.attempts.push({
 
@@ -1617,6 +1745,7 @@ async function processDomclick(
         posts.length
 
     });
+
 
     diagnostics.candidates =
       posts.length;
@@ -1637,9 +1766,12 @@ async function processDomclick(
         diagnostics.rejected++;
 
         continue;
+
       }
 
+
       diagnostics.recentCandidates++;
+
 
       items.push({
 
@@ -1714,10 +1846,6 @@ async function processDomclick(
   }
 
 
-  // ----------------------------------------------------
-  // SORT
-  // ----------------------------------------------------
-
   items.sort(
     (a, b) =>
       new Date(
@@ -1767,8 +1895,10 @@ async function parseArticle(
     const html =
       response.text;
 
+
     const title =
       getTitle(html);
+
 
     if (!title) {
 
@@ -1784,28 +1914,50 @@ async function parseArticle(
 
     }
 
+
     const description =
       getDescription(html);
 
-    let date =
-      extractDateFromHtml(
-        html
-      );
+
+    let date;
 
 
-    // --------------------------------------------------
-    // IMPORTANT:
-    // 161.RU / 93.RU contain date in article URL.
-    // --------------------------------------------------
+    /*
+      ВАЖНО:
+
+      Для 161.RU и 93.RU дата в URL является
+      наиболее надежным источником.
+
+      Раньше мы использовали HTML-дату первой,
+      из-за чего сайт мог отдавать дату обновления
+      или другую дату, и свежая статья попадала
+      в rejected: old.
+
+      Поэтому здесь URL имеет приоритет.
+    */
 
     if (
-      !date &&
       source.type === "n1"
     ) {
 
       date =
         dateFromN1Url(
           candidate.url
+        );
+
+    }
+
+
+    /*
+      Для остальных источников используем
+      дату из HTML.
+    */
+
+    if (!date) {
+
+      date =
+        extractDateFromHtml(
+          html
         );
 
     }
@@ -1960,6 +2112,7 @@ async function processSource(
 
   const source =
     SOURCES[sourceId];
+
 
   const diagnostics = {
 
@@ -2468,10 +2621,6 @@ export default async function handler(
       );
 
 
-    // --------------------------------------------------
-    // SOURCES
-    // --------------------------------------------------
-
     const sourceIds = [
 
       "161ru",
@@ -2514,10 +2663,6 @@ export default async function handler(
       );
 
 
-    // --------------------------------------------------
-    // COLLECT
-    // --------------------------------------------------
-
     let allItems = [];
 
     const diagnostics = {};
@@ -2547,10 +2692,6 @@ export default async function handler(
     }
 
 
-    // --------------------------------------------------
-    // DUPLICATES
-    // --------------------------------------------------
-
     allItems =
       removeDuplicates(
         allItems
@@ -2562,10 +2703,6 @@ export default async function handler(
         allItems
       );
 
-
-    // --------------------------------------------------
-    // CATEGORY
-    // --------------------------------------------------
 
     if (
       requestedCategory &&
@@ -2585,10 +2722,6 @@ export default async function handler(
     }
 
 
-    // --------------------------------------------------
-    // SORT
-    // --------------------------------------------------
-
     allItems.sort(
       (a, b) =>
         new Date(
@@ -2600,20 +2733,12 @@ export default async function handler(
     );
 
 
-    // --------------------------------------------------
-    // BALANCE
-    // --------------------------------------------------
-
     const balanced =
       balanceSources(
         allItems,
         limit
       );
 
-
-    // --------------------------------------------------
-    // HEADERS
-    // --------------------------------------------------
 
     res.setHeader(
       "Cache-Control",
@@ -2626,10 +2751,6 @@ export default async function handler(
       "*"
     );
 
-
-    // --------------------------------------------------
-    // RESPONSE
-    // --------------------------------------------------
 
     res.status(200).json({
 
