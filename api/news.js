@@ -94,18 +94,6 @@ function cleanText(value) {
 }
 
 
-/*
- * Финальная очистка заголовков.
- *
- * Здесь специально собраны различные варианты:
- * ДОМ.РФ
- * СПРОСИ.ДОМ.РФ
- * 161.RU
- * 93.RU
- * Домклик
- * Яндекс
- * и прочие хвосты.
- */
 function cleanTitle(value) {
   let text = cleanText(value);
 
@@ -163,7 +151,6 @@ function cleanDescription(value) {
   text = text
     .replace(/please open telegram to view this post/gi, "")
     .replace(/view in telegram/gi, "")
-
     .replace(/\b\d+(?:\.\d+)?[KК]?\s*views?\b/gi, "")
 
     .replace(
@@ -410,9 +397,13 @@ function extractDescription(html) {
 }
 
 
-function extractImage(html, baseUrl) {
+/* =========================================================
+   IMAGE
+========================================================= */
 
-  const image =
+function extractImage(html, baseUrl, sourceKey = "") {
+
+  let image =
     extractMeta(
       html,
       [
@@ -421,6 +412,65 @@ function extractImage(html, baseUrl) {
         "twitter:image"
       ]
     );
+
+  /*
+   * ДОМ.РФ иногда отдает в og:image
+   * общую картинку ring-sprosi.png.
+   *
+   * В таком случае ищем реальную картинку
+   * непосредственно в HTML статьи.
+   */
+  if (sourceKey === "domrf") {
+
+    const badImage =
+      /ring-sprosi|logo|favicon|icon/i;
+
+    if (
+      !image ||
+      badImage.test(image)
+    ) {
+
+      const imageRegex =
+        /<(?:img|source)\b[^>]*(?:src|data-src|data-original|srcset)=["']([^"']+)["'][^>]*>/gi;
+
+      let match;
+
+      while (
+        (match = imageRegex.exec(html))
+      ) {
+
+        const candidate =
+          normalizeUrl(
+            match[1]
+              .split(",")[0]
+              .trim()
+              .split(" ")[0],
+            baseUrl
+          );
+
+        if (!candidate) {
+          continue;
+        }
+
+        if (
+          badImage.test(candidate)
+        ) {
+          continue;
+        }
+
+        if (
+          /\/upload\/medialibrary\//i.test(candidate) ||
+          /\.(?:jpe?g|png|webp)(?:$|\?)/i.test(candidate)
+        ) {
+
+          image =
+            candidate;
+
+          break;
+        }
+      }
+    }
+  }
 
   if (!image) {
     return "";
@@ -446,7 +496,9 @@ function extractJsonLd(html) {
 
   let match;
 
-  while ((match = regex.exec(html))) {
+  while (
+    (match = regex.exec(html))
+  ) {
 
     const raw =
       match[1]
@@ -1237,7 +1289,8 @@ function classifyTopic(
 
 function extractArticleData(
   html,
-  url
+  url,
+  sourceKey = ""
 ) {
 
   const jsonLd =
@@ -1350,7 +1403,8 @@ function extractArticleData(
     image =
       extractImage(
         html,
-        url
+        url,
+        sourceKey
       );
   }
 
@@ -1421,11 +1475,6 @@ function createItem({
   }
 
 
-  /*
-   * Еще одна финальная очистка.
-   * Это важно для случаев, когда заголовок
-   * пришел из Telegram / JSON-LD / H1.
-   */
   const finalTitle =
     cleanTitle(title);
 
@@ -1586,7 +1635,8 @@ async function parseGenericSource(
       const data =
         extractArticleData(
           page.text,
-          url
+          url,
+          sourceKey
         );
 
 
@@ -1948,6 +1998,48 @@ function extractTelegramFallbackTitle(
 }
 
 
+function extractTelegramImage(block) {
+
+  if (!block) {
+    return "";
+  }
+
+  const patterns = [
+
+    /(?:background-image\s*:\s*url\(["']?)(https?:\/\/[^\s"'\)]+)(?:["']?\))/i,
+
+    /<img\b[^>]+src=["'](https?:\/\/[^"']+)["']/i,
+
+    /<source\b[^>]+src=["'](https?:\/\/[^"']+)["']/i
+
+  ];
+
+  for (
+    const pattern of
+    patterns
+  ) {
+
+    const match =
+      block.match(pattern);
+
+    if (
+      match &&
+      match[1]
+    ) {
+
+      return (
+        normalizeUrl(
+          match[1],
+          "https://t.me/"
+        ) || ""
+      );
+    }
+  }
+
+  return "";
+}
+
+
 async function parseDomclick(
   stats
 ) {
@@ -2028,7 +2120,6 @@ async function parseDomclick(
 
     let linkMatch;
 
-
     while (
       (linkMatch =
         linkRegex.exec(
@@ -2042,11 +2133,9 @@ async function parseDomclick(
           "https://t.me/"
         );
 
-
       if (!url) {
         continue;
       }
-
 
       if (
         !isAllowedDomclick(
@@ -2055,7 +2144,6 @@ async function parseDomclick(
       ) {
         continue;
       }
-
 
       articleLinks.push({
 
@@ -2154,7 +2242,8 @@ async function parseDomclick(
         data =
           extractArticleData(
             article.text,
-            url
+            url,
+            "domclick"
           );
       }
 
@@ -2188,6 +2277,15 @@ async function parseDomclick(
       }
 
 
+      if (!data.image) {
+
+        data.image =
+          extractTelegramImage(
+            post.html
+          );
+      }
+
+
       if (
         data.title &&
         data.description
@@ -2198,12 +2296,10 @@ async function parseDomclick(
             .toLowerCase()
             .trim();
 
-
         const descriptionLower =
           data.description
             .toLowerCase()
             .trim();
-
 
         if (
           descriptionLower.startsWith(
@@ -2302,7 +2398,6 @@ function extractCianRssLinks(
 
   let match;
 
-
   while (
     (match =
       regex.exec(html))
@@ -2319,11 +2414,9 @@ function extractCianRssLinks(
         match[2]
       );
 
-
     if (!href) {
       continue;
     }
-
 
     if (
       /rss|feed|новост/i.test(href) ||
@@ -2335,7 +2428,6 @@ function extractCianRssLinks(
       );
     }
   }
-
 
   return [
     ...new Set(result)
@@ -2354,15 +2446,12 @@ function extractXmlTag(
       "i"
     );
 
-
   const match =
     block.match(regex);
-
 
   if (!match) {
     return "";
   }
-
 
   return cleanText(
     match[1].replace(
@@ -2384,7 +2473,6 @@ function parseXmlItems(
 
   let match;
 
-
   while (
     (match =
       regex.exec(xml))
@@ -2393,13 +2481,11 @@ function parseXmlItems(
     const block =
       match[0];
 
-
     const title =
       extractXmlTag(
         block,
         "title"
       );
-
 
     const link =
       extractXmlTag(
@@ -2407,13 +2493,11 @@ function parseXmlItems(
         "link"
       );
 
-
     const description =
       extractXmlTag(
         block,
         "description"
       );
-
 
     const pubDate =
       extractXmlTag(
@@ -2429,21 +2513,17 @@ function parseXmlItems(
         "published"
       );
 
-
     let image = "";
-
 
     const enclosure =
       block.match(
         /<enclosure[^>]+url=["']([^"']+)["']/i
       );
 
-
     if (enclosure) {
       image =
         enclosure[1];
     }
-
 
     if (
       title &&
@@ -2476,7 +2556,6 @@ function parseXmlItems(
     }
   }
 
-
   return items;
 }
 
@@ -2487,12 +2566,10 @@ async function parseCian(
 
   const items = [];
 
-
   const page =
     await fetchText(
       SOURCES.cian.url
     );
-
 
   if (
     !page.ok ||
@@ -2504,12 +2581,10 @@ async function parseCian(
     return items;
   }
 
-
   let rssLinks =
     extractCianRssLinks(
       page.text
     );
-
 
   rssLinks = [
 
@@ -2521,15 +2596,12 @@ async function parseCian(
 
   ];
 
-
   rssLinks =
     [
       ...new Set(rssLinks)
     ];
 
-
   let rss = null;
-
 
   for (
     const rssUrl of
@@ -2540,7 +2612,6 @@ async function parseCian(
       await fetchText(
         rssUrl
       );
-
 
     if (
       response.ok &&
@@ -2557,7 +2628,6 @@ async function parseCian(
     }
   }
 
-
   if (rss) {
 
     const parsed =
@@ -2565,10 +2635,8 @@ async function parseCian(
         rss
       );
 
-
     stats.candidates =
       parsed.length;
-
 
     for (
       const article of
@@ -2584,7 +2652,6 @@ async function parseCian(
         continue;
       }
 
-
       if (
         !isAllowedCian(
           article.link
@@ -2595,7 +2662,6 @@ async function parseCian(
 
         continue;
       }
-
 
       const item =
         createItem({
@@ -2629,7 +2695,6 @@ async function parseCian(
 
         });
 
-
       if (!item) {
 
         stats.rejected++;
@@ -2637,16 +2702,13 @@ async function parseCian(
         continue;
       }
 
-
       items.push(
         item
       );
     }
 
-
     return items;
   }
-
 
   let links =
     extractLinks(
@@ -2654,16 +2716,13 @@ async function parseCian(
       SOURCES.cian.url
     );
 
-
   links =
     links.filter(
       isAllowedCian
     );
 
-
   stats.candidates =
     links.length;
-
 
   for (
     const url of
@@ -2677,7 +2736,6 @@ async function parseCian(
           url
         );
 
-
       if (
         !article.ok ||
         !article.text
@@ -2688,13 +2746,12 @@ async function parseCian(
         continue;
       }
 
-
       const data =
         extractArticleData(
           article.text,
-          url
+          url,
+          "cian"
         );
-
 
       if (
         !data.title ||
@@ -2705,7 +2762,6 @@ async function parseCian(
 
         continue;
       }
-
 
       const item =
         createItem({
@@ -2735,7 +2791,6 @@ async function parseCian(
 
         });
 
-
       if (!item) {
 
         stats.rejected++;
@@ -2743,10 +2798,7 @@ async function parseCian(
         continue;
       }
 
-
-      items.push(
-        item
-      );
+      items.push(item);
 
     } catch {
 
@@ -2754,7 +2806,6 @@ async function parseCian(
 
     }
   }
-
 
   return items;
 }
@@ -2773,12 +2824,10 @@ function isRecent(
     return false;
   }
 
-
   const timestamp =
     date instanceof Date
       ? date.getTime()
       : new Date(date).getTime();
-
 
   if (
     Number.isNaN(
@@ -2787,7 +2836,6 @@ function isRecent(
   ) {
     return false;
   }
-
 
   return (
     timestamp >=
@@ -2843,7 +2891,6 @@ function dedupeItems(
   const map =
     new Map();
 
-
   for (
     const item of
     items
@@ -2854,7 +2901,6 @@ function dedupeItems(
         item.title
       );
 
-
     if (!key) {
 
       result.push(
@@ -2863,7 +2909,6 @@ function dedupeItems(
 
       continue;
     }
-
 
     if (
       !map.has(key)
@@ -2881,10 +2926,8 @@ function dedupeItems(
       continue;
     }
 
-
     const existing =
       map.get(key);
-
 
     if (
       category === "all" &&
@@ -2908,11 +2951,9 @@ function dedupeItems(
         (existing.description || "").length +
         (existing.image ? 100 : 0);
 
-
       const newScore =
         (item.description || "").length +
         (item.image ? 100 : 0);
-
 
       if (
         newScore >
@@ -2924,13 +2965,11 @@ function dedupeItems(
             existing
           );
 
-
         if (index >= 0) {
 
           result[index] =
             item;
         }
-
 
         map.set(
           key,
@@ -2939,7 +2978,6 @@ function dedupeItems(
       }
     }
   }
-
 
   return result;
 }
@@ -2969,10 +3007,8 @@ function balanceItems(
     );
   }
 
-
   const groups =
     new Map();
-
 
   for (
     const item of
@@ -2991,12 +3027,10 @@ function balanceItems(
       );
     }
 
-
     groups
       .get(item.source)
       .push(item);
   }
-
 
   for (
     const list of
@@ -3014,11 +3048,9 @@ function balanceItems(
     );
   }
 
-
   const result = [];
 
   let added = true;
-
 
   while (
     result.length <
@@ -3027,7 +3059,6 @@ function balanceItems(
   ) {
 
     added = false;
-
 
     for (
       const list of
@@ -3038,14 +3069,11 @@ function balanceItems(
         continue;
       }
 
-
       result.push(
         list.shift()
       );
 
-
       added = true;
-
 
       if (
         result.length >=
@@ -3055,7 +3083,6 @@ function balanceItems(
       }
     }
   }
-
 
   return result;
 }
@@ -3077,12 +3104,10 @@ function filterCategory(
     return items;
   }
 
-
   const normalized =
     String(category)
       .trim()
       .toLowerCase();
-
 
   return items.filter(
     item => {
@@ -3092,12 +3117,10 @@ function filterCategory(
           item.category || ""
         ).toLowerCase();
 
-
       const topic =
         String(
           item.topic || ""
         ).toLowerCase();
-
 
       if (
         normalized ===
@@ -3112,7 +3135,6 @@ function filterCategory(
         );
       }
 
-
       if (
         normalized ===
           "krasnodar" ||
@@ -3126,7 +3148,6 @@ function filterCategory(
         );
       }
 
-
       if (
         normalized ===
           "federal" ||
@@ -3139,7 +3160,6 @@ function filterCategory(
           "federal"
         );
       }
-
 
       return (
         topic === normalized ||
@@ -3202,14 +3222,12 @@ async function loadGenericSource(
       source
     );
 
-
   try {
 
     const page =
       await fetchText(
         source.url
       );
-
 
     if (
       !page.ok ||
@@ -3224,7 +3242,6 @@ async function loadGenericSource(
       };
     }
 
-
     const items =
       await parseGenericSource(
         sourceKey,
@@ -3232,7 +3249,6 @@ async function loadGenericSource(
         page.text,
         stats
       );
-
 
     return {
       items,
@@ -3266,18 +3282,15 @@ module.exports =
       "*"
     );
 
-
     res.setHeader(
       "Access-Control-Allow-Methods",
       "GET, OPTIONS"
     );
 
-
     res.setHeader(
       "Access-Control-Allow-Headers",
       "Content-Type"
     );
-
 
     if (
       req.method ===
@@ -3288,7 +3301,6 @@ module.exports =
         .status(204)
         .end();
     }
-
 
     if (
       req.method !==
@@ -3322,13 +3334,6 @@ module.exports =
       );
 
 
-    let days =
-      Number(
-        req.query?.days ||
-          DEFAULT_DAYS
-      );
-
-
     if (
       !Number.isFinite(
         limit
@@ -3340,17 +3345,6 @@ module.exports =
     }
 
 
-    if (
-      !Number.isFinite(
-        days
-      )
-    ) {
-
-      days =
-        DEFAULT_DAYS;
-    }
-
-
     limit =
       Math.max(
         1,
@@ -3358,18 +3352,6 @@ module.exports =
           MAX_LIMIT,
           Math.floor(
             limit
-          )
-        )
-      );
-
-
-    days =
-      Math.max(
-        1,
-        Math.min(
-          30,
-          Math.floor(
-            days
           )
         )
       );
@@ -3411,39 +3393,15 @@ module.exports =
         const key =
           genericKeys[index];
 
-
         const stats =
           result.stats;
 
-
-        for (
-          const item of
-          result.items
-        ) {
-
-          if (
-            isRecent(
-              item.publishedAt,
-              days
-            )
-          ) {
-
-            stats.recentCandidates++;
-
-            allItems.push(
-              item
-            );
-
-          } else {
-
-            stats.rejected++;
-          }
-        }
-
+        allItems.push(
+          ...result.items
+        );
 
         sourcesStats[key] =
           stats;
-
       }
     );
 
@@ -3460,7 +3418,6 @@ module.exports =
           source
         );
 
-
       try {
 
         const items =
@@ -3468,36 +3425,15 @@ module.exports =
             stats
           );
 
-
-        for (
-          const item of
-          items
-        ) {
-
-          if (
-            isRecent(
-              item.publishedAt,
-              days
-            )
-          ) {
-
-            stats.recentCandidates++;
-
-            allItems.push(
-              item
-            );
-
-          } else {
-
-            stats.rejected++;
-          }
-        }
+        allItems.push(
+          ...items
+        );
 
       } catch {
 
         stats.failed++;
-      }
 
+      }
 
       sourcesStats.domclick =
         stats;
@@ -3516,7 +3452,6 @@ module.exports =
           source
         );
 
-
       try {
 
         const items =
@@ -3524,46 +3459,223 @@ module.exports =
             stats
           );
 
-
-        for (
-          const item of
-          items
-        ) {
-
-          if (
-            isRecent(
-              item.publishedAt,
-              days
-            )
-          ) {
-
-            stats.recentCandidates++;
-
-            allItems.push(
-              item
-            );
-
-          } else {
-
-            stats.rejected++;
-          }
-        }
+        allItems.push(
+          ...items
+        );
 
       } catch {
 
         stats.failed++;
-      }
 
+      }
 
       sourcesStats.cian =
         stats;
     }
 
 
+    /*
+     * ВАЖНО:
+     *
+     * «Все» всегда остается на 7 днях.
+     *
+     * Остальные категории получают
+     * автоматически рассчитанный период,
+     * необходимый для набора до 30 новостей.
+     */
+
+    function determineCategoryDays(
+      items,
+      category,
+      target = 30
+    ) {
+
+      if (
+        !category ||
+        category === "all"
+      ) {
+        return DEFAULT_DAYS;
+      }
+
+
+      const dayMs =
+        24 *
+        60 *
+        60 *
+        1000;
+
+
+      const maxCategoryDays =
+        365;
+
+
+      let candidates =
+        filterCategory(
+          items,
+          category
+        );
+
+
+      candidates =
+        dedupeItems(
+          candidates,
+          category
+        );
+
+
+      candidates.sort(
+        (a, b) =>
+          new Date(
+            b.publishedAt
+          ) -
+          new Date(
+            a.publishedAt
+          )
+      );
+
+
+      if (
+        !candidates.length
+      ) {
+        return DEFAULT_DAYS;
+      }
+
+
+      /*
+       * Берем 30-ю новость.
+       * Если новостей меньше 30,
+       * берем самую старую доступную.
+       */
+
+      const targetIndex =
+        Math.min(
+          target,
+          candidates.length
+        ) - 1;
+
+
+      const targetItem =
+        candidates[
+          targetIndex
+        ];
+
+
+      const timestamp =
+        new Date(
+          targetItem.publishedAt
+        ).getTime();
+
+
+      if (
+        Number.isNaN(
+          timestamp
+        )
+      ) {
+        return DEFAULT_DAYS;
+      }
+
+
+      const ageDays =
+        Math.ceil(
+          (
+            Date.now() -
+            timestamp
+          ) / dayMs
+        ) + 1;
+
+
+      return Math.max(
+        DEFAULT_DAYS,
+        Math.min(
+          maxCategoryDays,
+          ageDays
+        )
+      );
+    }
+
+
+    /*
+     * Для ALL всегда 7 дней.
+     *
+     * Для остальных категорий
+     * период определяется автоматически.
+     */
+
+    const effectiveDays =
+      category === "all"
+        ? DEFAULT_DAYS
+        : determineCategoryDays(
+            allItems,
+            category,
+            limit
+          );
+
+
+    /*
+     * Обновляем статистику источников
+     * уже с учетом рассчитанного периода.
+     */
+
+    Object.keys(
+      sourcesStats
+    ).forEach(
+      key => {
+
+        const stats =
+          sourcesStats[key];
+
+        const sourceItems =
+          allItems.filter(
+            item =>
+              item.source ===
+              key
+          );
+
+        stats.recentCandidates =
+          sourceItems.filter(
+            item =>
+              isRecent(
+                item.publishedAt,
+                effectiveDays
+              )
+          ).length;
+
+        stats.rejected =
+          Math.max(
+            0,
+            stats.candidates -
+              stats.recentCandidates
+          );
+      }
+    );
+
+
+    /*
+     * Фильтрация категории
+     */
+
     let filtered =
       filterCategory(
         allItems,
         category
+      );
+
+
+    /*
+     * Здесь применяется рассчитанный
+     * период.
+     *
+     * ALL = строго 7 дней.
+     * Остальные = период для 30 новостей.
+     */
+
+    filtered =
+      filtered.filter(
+        item =>
+          isRecent(
+            item.publishedAt,
+            effectiveDays
+          )
       );
 
 
@@ -3603,6 +3715,10 @@ module.exports =
     );
 
 
+    /*
+     * Финальная защита от дублей URL
+     */
+
     const seenUrls =
       new Set();
 
@@ -3637,6 +3753,57 @@ module.exports =
       );
 
 
+    /*
+     * IMAGE PROXY
+     *
+     * Для источников, которые могут
+     * блокировать прямую загрузку картинок
+     * браузером Tilda, отдаём URL
+     * через /api/image.
+     */
+
+    const forwardedProto =
+      req.headers[
+        "x-forwarded-proto"
+      ] || "https";
+
+
+    const forwardedHost =
+      req.headers.host;
+
+
+    const apiOrigin =
+      forwardedHost
+        ? `${forwardedProto}://${forwardedHost}`
+        : "https://urban-estate-news-test.vercel.app";
+
+
+    const proxySources =
+      new Set([
+        "161ru",
+        "93ru",
+        "domrf",
+        "domclick"
+      ]);
+
+
+    filtered.forEach(
+      item => {
+
+        if (
+          item.image &&
+          proxySources.has(
+            item.source
+          )
+        ) {
+
+          item.image =
+            `${apiOrigin}/api/image?url=${encodeURIComponent(item.image)}`;
+        }
+      }
+    );
+
+
     res.setHeader(
       "Cache-Control",
       "s-maxage=60, stale-while-revalidate=120"
@@ -3650,6 +3817,9 @@ module.exports =
         ok: true,
 
         category,
+
+        days:
+          effectiveDays,
 
         count:
           Math.min(
