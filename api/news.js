@@ -88,6 +88,30 @@ function cleanText(value) {
 }
 
 
+function cleanMultilineText(value) {
+
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+
+}
+
+
 function normalizeText(value) {
 
   return cleanText(value)
@@ -1158,19 +1182,6 @@ function isDomclickArticleUrl(url) {
       return false;
     }
 
-    /*
-      Домклик использует несколько разделов:
-
-      /nedvizhimost/post/...
-      /ipoteka/post/...
-      /finansy/post/...
-      /zhkh/post/...
-      /novosti/post/...
-      и т.д.
-
-      Поэтому не ограничиваемся только /novosti/.
-    */
-
     return (
       /\/post\/[^/]+/i.test(
         u.pathname
@@ -1236,10 +1247,10 @@ function extractTelegramDate(
 
 
 // ======================================================
-// TELEGRAM TEXT
+// TELEGRAM RAW TEXT
 // ======================================================
 
-function extractTelegramText(
+function extractTelegramRawText(
   block
 ) {
 
@@ -1264,15 +1275,53 @@ function extractTelegramText(
       match[1]
     ) {
 
-      return cleanText(
-        match[1]
-      );
+      return match[1];
 
     }
 
   }
 
   return "";
+
+}
+
+
+// ======================================================
+// TELEGRAM TEXT LINES
+// ======================================================
+
+function extractTelegramLines(
+  block
+) {
+
+  const raw =
+    extractTelegramRawText(
+      block
+    );
+
+  if (!raw) {
+    return [];
+  }
+
+
+  const text =
+    cleanMultilineText(
+      raw
+    );
+
+
+  return text
+    .split(/\n+/)
+    .map(
+      line =>
+        line
+          .replace(
+            /\s+/g,
+            " "
+          )
+          .trim()
+    )
+    .filter(Boolean);
 
 }
 
@@ -1372,62 +1421,188 @@ function extractDomclickLinksFromBlock(
 
 
 // ======================================================
+// REMOVE LEADING EMOJI
+// ======================================================
+
+function cleanTelegramTitle(
+  value
+) {
+
+  return String(value || "")
+    .replace(
+      /^[^\p{L}\p{N}«"«]+/u,
+      ""
+    )
+    .replace(
+      /^\s+/,
+      ""
+    )
+    .trim();
+
+}
+
+
+// ======================================================
 // TELEGRAM TITLE
 // ======================================================
 
 function getTelegramTitle(
-  text
+  lines
 ) {
 
-  const lines =
-    String(text || "")
-      .split(/\n+/)
-      .map(
-        line =>
-          cleanText(line)
-      )
-      .filter(Boolean);
+  if (!lines.length) {
+    return "";
+  }
 
-  for (
-    const line
-    of lines
+
+  /*
+    На официальном канале Домклик
+    заголовок идет первой строкой.
+
+    Например:
+
+    📝 Какой пакет документов нужен
+    для продажи квартиры
+
+    или:
+
+    🔥Новостройки бьют рекорды:
+    какую недвижимость покупают
+    россияне в ипотеку этой осенью
+  */
+
+
+  let title =
+    cleanTelegramTitle(
+      lines[0]
+    );
+
+
+  if (!title) {
+    return "";
+  }
+
+
+  /*
+    Иногда Telegram может разбить заголовок
+    на несколько строк.
+
+    Если первая строка заканчивается
+    двоеточием — скорее всего продолжение
+    находится на следующей строке.
+  */
+
+  if (
+    /[:—-]$/.test(title) &&
+    lines[1]
   ) {
 
-    if (
-      line.length < 10
-    ) {
-      continue;
-    }
+    const second =
+      cleanTelegramTitle(
+        lines[1]
+      );
 
     if (
-      /^https?:\/\//i.test(line)
+      second &&
+      second.length < 100
     ) {
-      continue;
-    }
 
-    if (
-      /^подписывайтесь/i.test(line)
-    ) {
-      continue;
-    }
+      title =
+        `${title} ${second}`;
 
-    if (
-      /^домклик/i.test(line) &&
-      line.length < 30
-    ) {
-      continue;
     }
-
-    return line
-      .replace(
-        /^[^\p{L}\p{N}«"«]+/u,
-        ""
-      )
-      .trim();
 
   }
 
-  return "";
+
+  return title
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+
+}
+
+
+// ======================================================
+// TELEGRAM DESCRIPTION
+// ======================================================
+
+function getTelegramDescription(
+  lines
+) {
+
+  if (
+    lines.length <= 1
+  ) {
+    return "";
+  }
+
+
+  let startIndex = 1;
+
+
+  /*
+    Если заголовок занял две строки,
+    пропускаем вторую строку.
+  */
+
+  if (
+    /[:—-]$/.test(
+      cleanTelegramTitle(
+        lines[0]
+      )
+    ) &&
+    lines[1]
+  ) {
+
+    startIndex = 2;
+
+  }
+
+
+  const descriptionLines =
+    lines
+      .slice(startIndex)
+      .filter(
+        line => {
+
+          if (!line) {
+            return false;
+          }
+
+          if (
+            /^➡️/.test(line)
+          ) {
+            return false;
+          }
+
+          if (
+            /^🏠\s*Домклик в MAX/i.test(line)
+          ) {
+            return false;
+          }
+
+          if (
+            /^подписывайтесь/i.test(line)
+          ) {
+            return false;
+          }
+
+          return true;
+
+        }
+      );
+
+
+  return descriptionLines
+    .join(" ")
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
 
 }
 
@@ -1441,17 +1616,6 @@ function extractTelegramPostBlocks(
 ) {
 
   const blocks = [];
-
-  /*
-    В Telegram структура может немного меняться.
-
-    Старый вариант с подсчетом закрывающих div
-    был слишком жестким.
-
-    Здесь используем начало следующего
-    tgme_widget_message_wrap как границу
-    текущего сообщения.
-  */
 
   const regex =
     /<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][^>]*>[\s\S]*?(?=<div[^>]+class=["'][^"']*tgme_widget_message_wrap[^"']*["'][^>]*>|<\/body>|$)/gi;
@@ -1526,19 +1690,19 @@ function extractDomclickTelegramPosts(
     }
 
 
-    const text =
-      extractTelegramText(
+    const lines =
+      extractTelegramLines(
         block
       );
 
-    if (!text) {
+    if (!lines.length) {
       continue;
     }
 
 
     const title =
       getTelegramTitle(
-        text
+        lines
       );
 
     if (!title) {
@@ -1546,41 +1710,16 @@ function extractDomclickTelegramPosts(
     }
 
 
+    const description =
+      getTelegramDescription(
+        lines
+      );
+
+
     const image =
       extractTelegramImage(
         block
       );
-
-
-    let description =
-      text
-        .replace(
-          title,
-          ""
-        )
-        .replace(
-          /\s+/g,
-          " "
-        )
-        .trim();
-
-
-    /*
-      Не оставляем в description технические
-      рекламные хвосты Telegram.
-    */
-
-    description =
-      description
-        .replace(
-          /🏠\s*Домклик в MAX.*$/i,
-          ""
-        )
-        .replace(
-          /Подписывайтесь.*$/i,
-          ""
-        )
-        .trim();
 
 
     posts.push({
@@ -1602,8 +1741,7 @@ function extractDomclickTelegramPosts(
 
 
   /*
-    Иногда одно и то же сообщение содержит
-    несколько ссылок на одну статью.
+    Удаляем дубли по URL статьи.
   */
 
   const unique =
@@ -1923,17 +2061,8 @@ async function parseArticle(
 
 
     /*
-      ВАЖНО:
-
-      Для 161.RU и 93.RU дата в URL является
-      наиболее надежным источником.
-
-      Раньше мы использовали HTML-дату первой,
-      из-за чего сайт мог отдавать дату обновления
-      или другую дату, и свежая статья попадала
-      в rejected: old.
-
-      Поэтому здесь URL имеет приоритет.
+      Для 161.RU и 93.RU дата из URL
+      является наиболее надежной.
     */
 
     if (
@@ -1947,11 +2076,6 @@ async function parseArticle(
 
     }
 
-
-    /*
-      Для остальных источников используем
-      дату из HTML.
-    */
 
     if (!date) {
 
