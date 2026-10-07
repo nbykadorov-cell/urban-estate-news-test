@@ -72,7 +72,7 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     BASIC HELPERS
+     TEXT / URL
   ========================================================= */
 
   function cleanText(value) {
@@ -99,7 +99,10 @@ export default async function handler(req, res) {
 
       if (!url) return "";
 
-      return new URL(url, baseUrl).href;
+      return new URL(
+        url,
+        baseUrl
+      ).href;
 
     } catch {
 
@@ -126,7 +129,8 @@ export default async function handler(req, res) {
         "utm_content",
         "yclid",
         "from",
-        "ref"
+        "ref",
+        "erid"
       ].forEach(param => {
         u.searchParams.delete(param);
       });
@@ -143,73 +147,52 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     DATE HELPERS
+     DATE
   ========================================================= */
 
   function normalizeDate(raw) {
 
     if (!raw) return "";
 
-    let value = String(raw)
+    const value = String(raw)
       .trim()
       .replace(/\u00a0/g, " ");
 
     if (!value) return "";
 
 
-    // ISO / YYYY-MM-DD
     let match = value.match(
       /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/
     );
 
     if (match) {
 
-      const y = Number(match[1]);
-      const m = Number(match[2]);
-      const d = Number(match[3]);
-
-      if (
-        y >= 2000 &&
-        m >= 1 &&
-        m <= 12 &&
-        d >= 1 &&
-        d <= 31
-      ) {
-
-        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-
-      }
+      return [
+        match[1],
+        String(match[2]).padStart(2, "0"),
+        String(match[3]).padStart(2, "0")
+      ].join("-");
 
     }
 
 
-    // DD.MM.YYYY
     match = value.match(
       /\b(\d{1,2})[.\/-](\d{1,2})[.\/-](20\d{2})\b/
     );
 
     if (match) {
 
-      const d = Number(match[1]);
-      const m = Number(match[2]);
-      const y = Number(match[3]);
-
-      if (
-        d >= 1 &&
-        d <= 31 &&
-        m >= 1 &&
-        m <= 12
-      ) {
-
-        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-
-      }
+      return [
+        match[3],
+        String(match[2]).padStart(2, "0"),
+        String(match[1]).padStart(2, "0")
+      ].join("-");
 
     }
 
 
-    // Русские месяцы
     const months = {
+
       января: 1,
       февраля: 2,
       марта: 3,
@@ -222,7 +205,9 @@ export default async function handler(req, res) {
       октября: 10,
       ноября: 11,
       декабря: 12
+
     };
+
 
     match = value.match(
       /\b(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(20\d{2})\b/i
@@ -230,32 +215,49 @@ export default async function handler(req, res) {
 
     if (match) {
 
-      const d = Number(match[1]);
-      const m = months[match[2].toLowerCase()];
-      const y = Number(match[3]);
+      const month =
+        months[
+          match[2].toLowerCase()
+        ];
 
-      if (m) {
+      if (month) {
 
-        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        return [
+          match[3],
+          String(month).padStart(2, "0"),
+          String(match[1]).padStart(2, "0")
+        ].join("-");
 
       }
 
     }
 
 
-    // Попытка распознать нормальную дату JS
-    const parsed = new Date(value);
+    const parsed =
+      new Date(value);
 
-    if (!Number.isNaN(parsed.getTime())) {
+    if (
+      !Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
 
-      const y = parsed.getFullYear();
+      const year =
+        parsed.getFullYear();
 
-      if (y >= 2000 && y <= 2100) {
+      if (
+        year >= 2000 &&
+        year <= 2100
+      ) {
 
         return [
-          y,
-          String(parsed.getMonth() + 1).padStart(2, "0"),
-          String(parsed.getDate()).padStart(2, "0")
+          year,
+          String(
+            parsed.getMonth() + 1
+          ).padStart(2, "0"),
+          String(
+            parsed.getDate()
+          ).padStart(2, "0")
         ].join("-");
 
       }
@@ -272,27 +274,14 @@ export default async function handler(req, res) {
 
     if (!url) return "";
 
-    let match = String(url).match(
-      /\/(20\d{2})\/(\d{2})\/(\d{2})\//
-    );
+    const match =
+      String(url).match(
+        /\/(20\d{2})\/(\d{2})\/(\d{2})\//
+      );
 
-    if (match) {
+    if (!match) return "";
 
-      return `${match[1]}-${match[2]}-${match[3]}`;
-
-    }
-
-    match = String(url).match(
-      /[?&](?:date|published|published_at)=(20\d{2})[-/](\d{2})[-/](\d{2})/i
-    );
-
-    if (match) {
-
-      return `${match[1]}-${match[2]}-${match[3]}`;
-
-    }
-
-    return "";
+    return `${match[1]}-${match[2]}-${match[3]}`;
 
   }
 
@@ -301,7 +290,8 @@ export default async function handler(req, res) {
 
     if (!text) return "";
 
-    const clean = cleanText(text);
+    const clean =
+      cleanText(text);
 
     const patterns = [
 
@@ -313,19 +303,25 @@ export default async function handler(req, res) {
 
     ];
 
-    for (const pattern of patterns) {
 
-      const match = clean.match(pattern);
+    for (
+      const pattern of patterns
+    ) {
 
-      if (match) {
+      const match =
+        clean.match(pattern);
 
-        const result = normalizeDate(match[0]);
+      if (!match) continue;
 
-        if (result) return result;
+      const date =
+        normalizeDate(
+          match[0]
+        );
 
-      }
+      if (date) return date;
 
     }
+
 
     return "";
 
@@ -336,67 +332,91 @@ export default async function handler(req, res) {
 
     if (!text) return "";
 
-    const clean = cleanText(text);
+    const clean =
+      cleanText(text);
 
-    const match = clean.match(
-      /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/i
-    );
+    const match =
+      clean.match(
+        /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/i
+      );
 
     if (!match) return "";
 
-    const y = Number(match[1]);
-    const m = Number(match[2]);
-    const d = Number(match[3]);
-    const h = Number(match[4]);
-    const min = Number(match[5]);
-    const sec = Number(match[6] || 0);
+    const dt =
+      new Date(
+        Date.UTC(
+          Number(match[1]),
+          Number(match[2]) - 1,
+          Number(match[3]),
+          Number(match[4]),
+          Number(match[5]),
+          Number(match[6] || 0)
+        )
+      );
 
-    const dt = new Date(
-      Date.UTC(y, m - 1, d, h, min, sec)
-    );
-
-    if (Number.isNaN(dt.getTime())) return "";
+    if (
+      Number.isNaN(
+        dt.getTime()
+      )
+    ) {
+      return "";
+    }
 
     return dt.toISOString();
 
   }
 
 
-  function extractMetaByProperty(html, property) {
+  /* =========================================================
+     META
+  ========================================================= */
+
+  function extractMeta(html, key) {
 
     if (!html) return "";
 
-    const regex = new RegExp(
-      `<meta[^>]+(?:property|name)=["']${property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]+content=["']([^"']+)["']`,
-      "i"
-    );
-
-    let match = html.match(regex);
-
-    if (match) return cleanText(match[1]);
+    const escaped =
+      key.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
 
 
-    const reverseRegex = new RegExp(
-      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-      "i"
-    );
+    let regex =
+      new RegExp(
+        `<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["']`,
+        "i"
+      );
 
-    match = html.match(reverseRegex);
+    let match =
+      html.match(regex);
 
-    return match ? cleanText(match[1]) : "";
+    if (match) {
+      return cleanText(
+        match[1]
+      );
+    }
+
+
+    regex =
+      new RegExp(
+        `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["']`,
+        "i"
+      );
+
+    match =
+      html.match(regex);
+
+    return match
+      ? cleanText(match[1])
+      : "";
 
   }
 
 
-  function extractMetaByName(html, name) {
-
-    return (
-      extractMetaByProperty(html, name) ||
-      extractMetaByProperty(html, name.toLowerCase())
-    );
-
-  }
-
+  /* =========================================================
+     JSON-LD DATE
+  ========================================================= */
 
   function extractJsonLdDates(html) {
 
@@ -404,59 +424,120 @@ export default async function handler(req, res) {
 
     if (!html) return result;
 
-    const regex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+    const regex =
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
 
     let match;
 
-    while ((match = regex.exec(html))) {
 
-      let raw = match[1]
-        .replace(/<!--/g, "")
-        .replace(/-->/g, "")
-        .trim();
+    while (
+      (match = regex.exec(html))
+    ) {
+
+      let raw =
+        match[1]
+          .replace(/<!--/g, "")
+          .replace(/-->/g, "")
+          .trim();
+
 
       if (!raw) continue;
 
+
       try {
 
-        const data = JSON.parse(raw);
+        const data =
+          JSON.parse(raw);
 
-        const objects = Array.isArray(data)
-          ? data
-          : [data];
+        const objects =
+          Array.isArray(data)
+            ? data
+            : [data];
 
-        for (const obj of objects) {
 
-          if (!obj || typeof obj !== "object") continue;
+        for (
+          const obj of objects
+        ) {
 
-          if (obj.datePublished) {
-            result.push(obj.datePublished);
+          if (
+            !obj ||
+            typeof obj !== "object"
+          ) {
+            continue;
           }
 
-          if (obj.dateCreated) {
-            result.push(obj.dateCreated);
+
+          if (
+            obj.datePublished
+          ) {
+            result.push(
+              obj.datePublished
+            );
           }
 
-          if (obj.uploadDate) {
-            result.push(obj.uploadDate);
+
+          if (
+            obj.dateCreated
+          ) {
+            result.push(
+              obj.dateCreated
+            );
           }
 
-          if (Array.isArray(obj["@graph"])) {
 
-            for (const graphItem of obj["@graph"]) {
+          if (
+            obj.uploadDate
+          ) {
+            result.push(
+              obj.uploadDate
+            );
+          }
 
-              if (!graphItem || typeof graphItem !== "object") continue;
 
-              if (graphItem.datePublished) {
-                result.push(graphItem.datePublished);
+          if (
+            Array.isArray(
+              obj["@graph"]
+            )
+          ) {
+
+            for (
+              const item
+              of obj["@graph"]
+            ) {
+
+              if (
+                !item ||
+                typeof item !== "object"
+              ) {
+                continue;
               }
 
-              if (graphItem.dateCreated) {
-                result.push(graphItem.dateCreated);
+
+              if (
+                item.datePublished
+              ) {
+                result.push(
+                  item.datePublished
+                );
               }
 
-              if (graphItem.uploadDate) {
-                result.push(graphItem.uploadDate);
+
+              if (
+                item.dateCreated
+              ) {
+                result.push(
+                  item.dateCreated
+                );
+              }
+
+
+              if (
+                item.uploadDate
+              ) {
+                result.push(
+                  item.uploadDate
+                );
               }
 
             }
@@ -467,199 +548,209 @@ export default async function handler(req, res) {
 
       } catch {
 
-        // Некоторые сайты помещают JSON-LD
-        // с невалидными символами.
-        // В таком случае просто переходим дальше.
-
       }
 
     }
+
 
     return result;
 
   }
 
 
-  function extractPublishedDate(html, candidateDate = {}) {
+  function extractPublishedDate(
+    html,
+    candidate = {}
+  ) {
 
-    if (!html) return "";
+    const jsonDates =
+      extractJsonLdDates(html);
 
 
-    // 1. JSON-LD
+    for (
+      const raw
+      of jsonDates
+    ) {
 
-    const jsonLdDates = extractJsonLdDates(html);
-
-    for (const raw of jsonLdDates) {
-
-      const date = normalizeDate(raw);
+      const date =
+        normalizeDate(raw);
 
       if (date) return date;
 
     }
 
 
-    // 2. OpenGraph published time
-
-    const ogPublished =
-      extractMetaByProperty(
+    const ogDate =
+      extractMeta(
         html,
         "article:published_time"
       );
 
-    if (ogPublished) {
 
-      const date = normalizeDate(ogPublished);
+    if (ogDate) {
+
+      const date =
+        normalizeDate(
+          ogDate
+        );
 
       if (date) return date;
 
     }
 
 
-    // 3. Специальные meta
+    const names = [
 
-    const metaNames = [
       "datePublished",
       "datepublished",
       "publishdate",
       "pubdate",
       "date"
+
     ];
 
-    for (const name of metaNames) {
 
-      const raw = extractMetaByName(
-        html,
-        name
-      );
-
-      if (!raw) continue;
-
-      const date = normalizeDate(raw);
-
-      if (date) return date;
-
-    }
-
-
-    // 4. URL
-
-    const urlDate = extractDateFromUrl(
-      candidateDate.url || ""
-    );
-
-    if (urlDate) return urlDate;
-
-
-    // 5. Дата из переданного кандидата
-
-    if (
-      candidateDate &&
-      typeof candidateDate === "object" &&
-      candidateDate.date
+    for (
+      const name
+      of names
     ) {
 
-      const date = normalizeDate(
-        candidateDate.date
-      );
+      const value =
+        extractMeta(
+          html,
+          name
+        );
+
+      if (!value) continue;
+
+      const date =
+        normalizeDate(value);
 
       if (date) return date;
 
     }
 
 
-    // 6. Дата в тексте
+    const urlDate =
+      extractDateFromUrl(
+        candidate.url || ""
+      );
 
-    const textDate = extractDateFromText(html);
 
-    if (textDate) return textDate;
+    if (urlDate) {
+      return urlDate;
+    }
 
 
-    return "";
+    if (
+      candidate &&
+      candidate.date
+    ) {
+
+      const date =
+        normalizeDate(
+          candidate.date
+        );
+
+      if (date) return date;
+
+    }
+
+
+    return extractDateFromText(
+      html
+    );
 
   }
 
 
-  function isRecent(date, days) {
+  function isRecent(
+    date,
+    days
+  ) {
 
     if (!date) return false;
 
-    const parsed = new Date(
-      `${date}T23:59:59`
-    );
+    const parsed =
+      new Date(
+        `${date}T23:59:59`
+      );
 
-    if (Number.isNaN(parsed.getTime())) {
+    if (
+      Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
       return false;
     }
 
-    const now = new Date();
 
-    const limit = new Date(
-      now.getTime() -
-      Number(days) * 24 * 60 * 60 * 1000
-    );
+    const now =
+      new Date();
+
+
+    const limit =
+      new Date(
+        now.getTime() -
+        Number(days) *
+        24 *
+        60 *
+        60 *
+        1000
+      );
+
 
     return parsed >= limit;
 
   }
 
 
-  function getDateLimit(days) {
-
-    const d = Number(days);
-
-    if (!Number.isFinite(d) || d <= 0) {
-      return 7;
-    }
-
-    return Math.min(
-      Math.max(Math.round(d), 1),
-      30
-    );
-
-  }
-
-
   /* =========================================================
-     HTML EXTRACTION
+     ARTICLE DATA
   ========================================================= */
 
   function extractTitle(html) {
 
     if (!html) return "";
 
-    let match = html.match(
-      /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i
-    );
+
+    let value =
+      extractMeta(
+        html,
+        "og:title"
+      );
+
+
+    if (value) return value;
+
+
+    let match =
+      html.match(
+        /<h1[^>]*>([\s\S]*?)<\/h1>/i
+      );
+
 
     if (match) {
-      return cleanText(match[1]);
+
+      value =
+        cleanText(
+          match[1]
+        );
+
+      if (value) return value;
+
     }
 
-    match = html.match(
-      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i
-    );
 
-    if (match) {
-      return cleanText(match[1]);
-    }
+    match =
+      html.match(
+        /<title[^>]*>([\s\S]*?)<\/title>/i
+      );
 
-    match = html.match(
-      /<title[^>]*>([\s\S]*?)<\/title>/i
-    );
 
-    if (match) {
-      return cleanText(match[1]);
-    }
-
-    match = html.match(
-      /<h1[^>]*>([\s\S]*?)<\/h1>/i
-    );
-
-    if (match) {
-      return cleanText(match[1]);
-    }
-
-    return "";
+    return match
+      ? cleanText(match[1])
+      : "";
 
   }
 
@@ -668,74 +759,93 @@ export default async function handler(req, res) {
 
     if (!html) return "";
 
-    let description =
-      extractMetaByProperty(
+
+    let value =
+      extractMeta(
         html,
         "og:description"
       );
 
-    if (description) return description;
+
+    if (value) return value;
 
 
-    description =
-      extractMetaByName(
+    value =
+      extractMeta(
         html,
         "description"
       );
 
-    if (description) return description;
+
+    if (value) return value;
 
 
-    const match = html.match(
-      /<p[^>]*>([\s\S]*?)<\/p>/i
-    );
+    const match =
+      html.match(
+        /<p[^>]*>([\s\S]*?)<\/p>/i
+      );
+
 
     if (match) {
 
-      const text = cleanText(match[1]);
+      value =
+        cleanText(
+          match[1]
+        );
 
-      if (text.length > 30) {
-        return text;
+      if (
+        value.length > 30
+      ) {
+        return value;
       }
 
     }
+
 
     return "";
 
   }
 
 
-  function extractImage(html, baseUrl) {
+  function extractImage(
+    html,
+    baseUrl
+  ) {
 
     if (!html) return "";
 
+
     let image =
-      extractMetaByProperty(
+      extractMeta(
         html,
         "og:image"
       );
 
+
     if (!image) {
 
       image =
-        extractMetaByName(
+        extractMeta(
           html,
           "twitter:image"
         );
 
     }
 
+
     if (!image) {
 
-      const match = html.match(
-        /<img[^>]+(?:src|data-src)=["']([^"']+)["']/i
-      );
+      const match =
+        html.match(
+          /<img[^>]+(?:src|data-src)=["']([^"']+)["']/i
+        );
 
       if (match) {
         image = match[1];
       }
 
     }
+
 
     return absoluteUrl(
       image,
@@ -745,58 +855,75 @@ export default async function handler(req, res) {
   }
 
 
-  function extractCanonical(html, baseUrl) {
+  function extractCanonical(
+    html,
+    baseUrl
+  ) {
 
     if (!html) return "";
 
-    let match = html.match(
-      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
-    );
+
+    let match =
+      html.match(
+        /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
+      );
+
 
     if (!match) {
 
-      match = html.match(
-        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i
-      );
+      match =
+        html.match(
+          /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i
+        );
 
     }
 
+
     if (!match) return "";
 
+
     return normalizeUrl(
-      absoluteUrl(match[1], baseUrl)
+      absoluteUrl(
+        match[1],
+        baseUrl
+      )
     );
 
   }
 
 
   /* =========================================================
-     FETCH
+     FETCH HTML
   ========================================================= */
 
   async function fetchHtml(url) {
 
-    const response = await fetch(url, {
+    const response =
+      await fetch(
+        url,
+        {
 
-      redirect: "follow",
+          redirect: "follow",
 
-      headers: {
+          headers: {
 
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
 
-        "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept":
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 
-        "Accept-Language":
-          "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Language":
+              "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
 
-        "Cache-Control":
-          "no-cache"
+            "Cache-Control":
+              "no-cache"
 
-      }
+          }
 
-    });
+        }
+      );
+
 
     if (!response.ok) {
 
@@ -806,46 +933,63 @@ export default async function handler(req, res) {
 
     }
 
+
     return await response.text();
 
   }
 
 
   /* =========================================================
-     161.RU / 93.RU
+     161 / 93
   ========================================================= */
 
-  async function fetchN1List(source) {
+  async function fetchN1List(
+    source
+  ) {
 
-    const html = await fetchHtml(
-      source.listUrl
-    );
+    const html =
+      await fetchHtml(
+        source.listUrl
+      );
+
 
     const links = [];
     const seen = new Set();
 
-    const hrefRegex =
+
+    const regex =
       /href\s*=\s*["']([^"']+)["']/gi;
 
     let match;
 
-    while ((match = hrefRegex.exec(html))) {
 
-      let url = absoluteUrl(
-        match[1],
-        source.listUrl
-      );
+    while (
+      (match = regex.exec(html))
+    ) {
+
+      let url =
+        absoluteUrl(
+          match[1],
+          source.listUrl
+        );
+
 
       if (!url) continue;
 
-      url = normalizeUrl(url);
+
+      url =
+        normalizeUrl(url);
+
 
       if (!url) continue;
 
 
       let valid = false;
 
-      if (source.id === "161ru") {
+
+      if (
+        source.id === "161ru"
+      ) {
 
         valid =
           /^https:\/\/161\.ru\/text\/realty\/\d{4}\/\d{2}\/\d{2}\/\d+\/?$/i
@@ -854,7 +998,9 @@ export default async function handler(req, res) {
       }
 
 
-      if (source.id === "93ru") {
+      if (
+        source.id === "93ru"
+      ) {
 
         valid =
           /^https:\/\/93\.ru\/text\/realty\/\d{4}\/\d{2}\/\d{2}\/\d+\/?$/i
@@ -865,24 +1011,37 @@ export default async function handler(req, res) {
 
       if (!valid) continue;
 
-      if (seen.has(url)) continue;
+
+      if (
+        seen.has(url)
+      ) {
+        continue;
+      }
+
 
       seen.add(url);
+
 
       links.push({
 
         url,
 
         date:
-          extractDateFromUrl(url)
+          extractDateFromUrl(
+            url
+          )
 
       });
 
-      if (links.length >= 30) {
+
+      if (
+        links.length >= 30
+      ) {
         break;
       }
 
     }
+
 
     return links;
 
@@ -893,30 +1052,43 @@ export default async function handler(req, res) {
      КРАСДОМ
   ========================================================= */
 
-  async function fetchKrasdomList(source) {
+  async function fetchKrasdomList(
+    source
+  ) {
 
-    const html = await fetchHtml(
-      source.listUrl
-    );
+    const html =
+      await fetchHtml(
+        source.listUrl
+      );
+
 
     const links = [];
     const seen = new Set();
 
-    const hrefRegex =
+
+    const regex =
       /href\s*=\s*["']([^"']+)["']/gi;
 
     let match;
 
-    while ((match = hrefRegex.exec(html))) {
 
-      let url = absoluteUrl(
-        match[1],
-        source.listUrl
-      );
+    while (
+      (match = regex.exec(html))
+    ) {
+
+      let url =
+        absoluteUrl(
+          match[1],
+          source.listUrl
+        );
+
 
       if (!url) continue;
 
-      url = normalizeUrl(url);
+
+      url =
+        normalizeUrl(url);
+
 
       if (!url) continue;
 
@@ -945,9 +1117,15 @@ export default async function handler(req, res) {
       }
 
 
-      if (seen.has(url)) continue;
+      if (
+        seen.has(url)
+      ) {
+        continue;
+      }
+
 
       seen.add(url);
+
 
       links.push({
 
@@ -958,11 +1136,14 @@ export default async function handler(req, res) {
       });
 
 
-      if (links.length >= 30) {
+      if (
+        links.length >= 30
+      ) {
         break;
       }
 
     }
+
 
     return links;
 
@@ -973,36 +1154,85 @@ export default async function handler(req, res) {
      ДОМКЛИК
   ========================================================= */
 
-  async function fetchDomclickList(source) {
+  async function fetchDomclickList(
+    source
+  ) {
 
-    const html = await fetchHtml(
-      source.listUrl
-    );
+    const html =
+      await fetchHtml(
+        source.listUrl
+      );
+
 
     const links = [];
     const seen = new Set();
 
-    const hrefRegex =
+
+    /*
+     * Домклик может отдавать ссылки
+     * не только через /novosti/,
+     * поэтому сначала собираем ВСЕ
+     * ссылки blog.domclick.ru.
+     */
+
+    const regex =
       /href\s*=\s*["']([^"']+)["']/gi;
 
     let match;
 
-    while ((match = hrefRegex.exec(html))) {
 
-      let url = absoluteUrl(
-        match[1],
-        source.listUrl
-      );
+    while (
+      (match = regex.exec(html))
+    ) {
+
+      let url =
+        absoluteUrl(
+          match[1],
+          source.listUrl
+        );
+
 
       if (!url) continue;
 
-      url = normalizeUrl(url);
+
+      url =
+        normalizeUrl(url);
+
 
       if (!url) continue;
 
+
+      /*
+       * Только блог Домклик.
+       */
 
       if (
-        !/^https:\/\/blog\.domclick\.ru\/novosti\/.+/i
+        !/^https:\/\/blog\.domclick\.ru\//i
+          .test(url)
+      ) {
+        continue;
+      }
+
+
+      /*
+       * Исключаем служебные страницы.
+       */
+
+      if (
+        /\/(tag|category|page|author|search|feed|novosti\/?$)/i
+          .test(url)
+      ) {
+        continue;
+      }
+
+
+      /*
+       * Исключаем картинки,
+       * файлы и технические ссылки.
+       */
+
+      if (
+        /\.(jpg|jpeg|png|gif|svg|webp|pdf|xml|json)$/i
           .test(url)
       ) {
         continue;
@@ -1010,16 +1240,14 @@ export default async function handler(req, res) {
 
 
       if (
-        /\/(tag|category|page|author|search|feed)\//i
-          .test(url)
+        seen.has(url)
       ) {
         continue;
       }
 
-
-      if (seen.has(url)) continue;
 
       seen.add(url);
+
 
       links.push({
 
@@ -1030,11 +1258,14 @@ export default async function handler(req, res) {
       });
 
 
-      if (links.length >= 30) {
+      if (
+        links.length >= 30
+      ) {
         break;
       }
 
     }
+
 
     return links;
 
@@ -1045,45 +1276,103 @@ export default async function handler(req, res) {
      ДОМ.РФ
   ========================================================= */
 
-  async function fetchDomrfList(source) {
+  async function fetchDomrfList(
+    source
+  ) {
 
-    const html = await fetchHtml(
-      source.listUrl
-    );
+    const html =
+      await fetchHtml(
+        source.listUrl
+      );
+
 
     const links = [];
     const seen = new Set();
 
-    const hrefRegex =
+
+    const regex =
       /href\s*=\s*["']([^"']+)["']/gi;
 
     let match;
 
-    while ((match = hrefRegex.exec(html))) {
 
-      let url = absoluteUrl(
-        match[1],
-        source.listUrl
-      );
+    while (
+      (match = regex.exec(html))
+    ) {
+
+      let raw =
+        match[1];
+
+
+      /*
+       * Сначала пробуем обычный URL.
+       */
+
+      let url =
+        absoluteUrl(
+          raw,
+          source.listUrl
+        );
+
+
+      /*
+       * Иногда русскоязычные URL
+       * могут быть записаны в HTML
+       * в percent-encoded виде.
+       */
 
       if (!url) continue;
 
-      url = normalizeUrl(url);
+
+      url =
+        normalizeUrl(url);
+
 
       if (!url) continue;
 
 
-      // ДОМ.РФ может отдавать URL
-      // с русским доменом в разных формах.
+      /*
+       * ВАЖНО:
+       * не ограничиваемся только /news/.
+       *
+       * ДОМ.РФ может использовать
+       * разные внутренние маршруты
+       * для публикаций.
+       */
+
+      const host =
+        (() => {
+
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return "";
+          }
+
+        })();
+
+
       if (
-        !/^https:\/\/спроси\.дом\.рф\//i.test(url) &&
-        !/^https:\/\/xn--80aapx0b\.xn--d1aqf\.xn--p1ai\//i.test(url)
+        !(
+          host === "спроси.дом.рф" ||
+          host.endsWith(
+            ".дом.рф"
+          ) ||
+          host ===
+            "xn--80az8a.xn--d1aqf.xn--p1ai"
+        )
       ) {
+
         continue;
+
       }
 
 
-      // Исключаем сам раздел новостей
+      /*
+       * Исключаем сам раздел,
+       * навигацию и служебные страницы.
+       */
+
       if (
         /\/news\/?$/i.test(url)
       ) {
@@ -1091,34 +1380,52 @@ export default async function handler(req, res) {
       }
 
 
-      // Служебные страницы
       if (
-        /\/(tag|category|page|author|search|feed)\//i
+        /\/(tag|category|page|author|search|feed|login|account)\//i
           .test(url)
       ) {
         continue;
       }
 
 
-      if (seen.has(url)) continue;
+      if (
+        /\.(jpg|jpeg|png|gif|svg|webp|pdf|xml|json)$/i
+          .test(url)
+      ) {
+        continue;
+      }
+
+
+      if (
+        seen.has(url)
+      ) {
+        continue;
+      }
+
 
       seen.add(url);
+
 
       links.push({
 
         url,
 
         date:
-          extractDateFromUrl(url)
+          extractDateFromUrl(
+            url
+          )
 
       });
 
 
-      if (links.length >= 30) {
+      if (
+        links.length >= 40
+      ) {
         break;
       }
 
     }
+
 
     return links;
 
@@ -1134,21 +1441,26 @@ export default async function handler(req, res) {
     candidate
   ) {
 
-    const html = await fetchHtml(
-      candidate.url
-    );
+    const html =
+      await fetchHtml(
+        candidate.url
+      );
+
 
     const title =
       extractTitle(html);
 
+
     const description =
       extractDescription(html);
+
 
     const image =
       extractImage(
         html,
         candidate.url
       );
+
 
     const canonical =
       extractCanonical(
@@ -1165,16 +1477,21 @@ export default async function handler(req, res) {
 
 
     const publishedAt =
-      extractPublishedAtFromText(html);
+      extractPublishedAtFromText(
+        html
+      );
 
 
     return {
 
-      source: source.name,
+      source:
+        source.name,
 
-      sourceId: source.id,
+      sourceId:
+        source.id,
 
-      category: source.category,
+      category:
+        source.category,
 
       title:
         title || "Без названия",
@@ -1183,7 +1500,8 @@ export default async function handler(req, res) {
         description || "",
 
       url:
-        canonical || candidate.url,
+        canonical ||
+        candidate.url,
 
       image:
         image || "",
@@ -1192,7 +1510,8 @@ export default async function handler(req, res) {
         date || "",
 
       publishedAt:
-        publishedAt || (
+        publishedAt ||
+        (
           date
             ? `${date}T00:00:00Z`
             : ""
@@ -1204,10 +1523,12 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     TOPIC CLASSIFICATION
+     TOPIC
   ========================================================= */
 
-  function getTopicCategory(title) {
+  function getTopicCategory(
+    title
+  ) {
 
     const text =
       String(title || "")
@@ -1287,10 +1608,14 @@ export default async function handler(req, res) {
       let candidates = [];
 
 
-      if (source.type === "n1") {
+      if (
+        source.type === "n1"
+      ) {
 
         candidates =
-          await fetchN1List(source);
+          await fetchN1List(
+            source
+          );
 
       }
 
@@ -1299,7 +1624,9 @@ export default async function handler(req, res) {
       ) {
 
         candidates =
-          await fetchKrasdomList(source);
+          await fetchKrasdomList(
+            source
+          );
 
       }
 
@@ -1308,7 +1635,9 @@ export default async function handler(req, res) {
       ) {
 
         candidates =
-          await fetchDomclickList(source);
+          await fetchDomclickList(
+            source
+          );
 
       }
 
@@ -1317,7 +1646,9 @@ export default async function handler(req, res) {
       ) {
 
         candidates =
-          await fetchDomrfList(source);
+          await fetchDomrfList(
+            source
+          );
 
       }
 
@@ -1327,12 +1658,13 @@ export default async function handler(req, res) {
 
 
       /*
-       * N1 источники уже содержат дату
-       * в URL, поэтому старые статьи
-       * отбрасываем до загрузки страниц.
+       * 161 / 93:
+       * дата уже известна из URL.
        */
 
-      if (source.type === "n1") {
+      if (
+        source.type === "n1"
+      ) {
 
         candidates =
           candidates.filter(
@@ -1348,26 +1680,26 @@ export default async function handler(req, res) {
 
 
       /*
-       * Для КРАСДОМ, Домклик и ДОМ.РФ
-       * сначала открываем статьи,
-       * определяем реальную дату,
-       * затем применяем days.
+       * Источники, где дату надо
+       * получить со страницы статьи.
        */
 
-      const needArticleDate =
+      const articleDateSource =
         source.type === "krasdom" ||
         source.type === "domclick" ||
         source.type === "domrf";
 
 
-      if (needArticleDate) {
+      if (
+        articleDateSource
+      ) {
 
         candidates =
           candidates.slice(
             0,
             Math.max(
               limit * 2,
-              15
+              20
             )
           );
 
@@ -1376,11 +1708,6 @@ export default async function handler(req, res) {
 
       const items = [];
 
-
-      /*
-       * Обрабатываем небольшими пачками,
-       * чтобы Vercel не перегружался.
-       */
 
       const batchSize = 4;
 
@@ -1400,6 +1727,7 @@ export default async function handler(req, res) {
 
         const results =
           await Promise.all(
+
             batch.map(
               async candidate => {
 
@@ -1422,8 +1750,22 @@ export default async function handler(req, res) {
                   }
 
 
+                  /*
+                   * Для новых источников
+                   * обязательно нужна дата.
+                   */
+
                   if (
-                    needArticleDate &&
+                    articleDateSource &&
+                    !article.date
+                  ) {
+
+                    return null;
+
+                  }
+
+
+                  if (
                     !isRecent(
                       article.date,
                       days
@@ -1449,6 +1791,7 @@ export default async function handler(req, res) {
 
               }
             )
+
           );
 
 
@@ -1457,20 +1800,27 @@ export default async function handler(req, res) {
         ) {
 
           if (item) {
-            items.push(item);
+
+            items.push(
+              item
+            );
+
           }
 
         }
 
 
         /*
-         * Если уже набрали достаточно,
-         * дальше источник можно не грузить.
+         * Достаточно материалов —
+         * прекращаем загрузку.
          */
 
         if (
           items.length >=
-          Math.max(limit, 10)
+          Math.max(
+            limit,
+            10
+          )
         ) {
 
           break;
@@ -1484,22 +1834,19 @@ export default async function handler(req, res) {
         items.length;
 
 
-      /*
-       * Сортируем внутри источника
-       * по дате от новых к старым.
-       */
-
       items.sort(
         (a, b) => {
 
           const da =
             new Date(
-              a.date || "1970-01-01"
+              a.date ||
+              "1970-01-01"
             ).getTime();
 
           const db =
             new Date(
-              b.date || "1970-01-01"
+              b.date ||
+              "1970-01-01"
             ).getTime();
 
           return db - da;
@@ -1530,7 +1877,7 @@ export default async function handler(req, res) {
 
     }
 
-    catch (error) {
+    catch {
 
       diagnostics.failed++;
 
@@ -1548,10 +1895,10 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     REQUEST PARAMS
+     REQUEST
   ========================================================= */
 
-  const url =
+  const requestUrl =
     new URL(
       req.url,
       `https://${req.headers.host}`
@@ -1560,7 +1907,7 @@ export default async function handler(req, res) {
 
   const category =
     (
-      url.searchParams.get(
+      requestUrl.searchParams.get(
         "category"
       ) || "all"
     ).toLowerCase();
@@ -1568,7 +1915,7 @@ export default async function handler(req, res) {
 
   const limitRaw =
     Number(
-      url.searchParams.get(
+      requestUrl.searchParams.get(
         "limit"
       ) || 15
     );
@@ -1586,24 +1933,32 @@ export default async function handler(req, res) {
     );
 
 
-  const days =
-    getDateLimit(
-      url.searchParams.get(
+  const daysRaw =
+    Number(
+      requestUrl.searchParams.get(
         "days"
       ) || 7
     );
 
 
+  const days =
+    Math.min(
+      Math.max(
+        Number.isFinite(daysRaw)
+          ? Math.round(daysRaw)
+          : 7,
+        1
+      ),
+      30
+    );
+
+
   /* =========================================================
-     SOURCE SELECTION
+     SOURCES
   ========================================================= */
 
   let sources = [];
 
-
-  /*
-   * ВСЕ НОВОСТИ
-   */
 
   if (
     category === "all"
@@ -1626,10 +1981,6 @@ export default async function handler(req, res) {
   }
 
 
-  /*
-   * РОСТОВ
-   */
-
   else if (
     category === "rostov"
   ) {
@@ -1642,10 +1993,6 @@ export default async function handler(req, res) {
 
   }
 
-
-  /*
-   * КРАСНОДАР
-   */
 
   else if (
     category === "krasnodar"
@@ -1661,10 +2008,6 @@ export default async function handler(req, res) {
 
   }
 
-
-  /*
-   * ТЕМАТИЧЕСКИЕ КАТЕГОРИИ
-   */
 
   else if (
     [
@@ -1692,10 +2035,6 @@ export default async function handler(req, res) {
   }
 
 
-  /*
-   * НЕИЗВЕСТНАЯ КАТЕГОРИЯ
-   */
-
   else {
 
     return res.status(200).json({
@@ -1711,11 +2050,12 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     FETCH SOURCES
+     LOAD
   ========================================================= */
 
   const results =
     await Promise.all(
+
       sources.map(
         source =>
           processSource(
@@ -1724,6 +2064,7 @@ export default async function handler(req, res) {
             days
           )
       )
+
     );
 
 
@@ -1732,18 +2073,22 @@ export default async function handler(req, res) {
   const sourceDiagnostics = [];
 
 
-  results.forEach(result => {
+  for (
+    const result
+    of results
+  ) {
 
     allItems =
       allItems.concat(
         result.items
       );
 
+
     sourceDiagnostics.push(
       result.diagnostics
     );
 
-  });
+  }
 
 
   /* =========================================================
@@ -1771,41 +2116,99 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     REMOVE DUPLICATES
+     DUPLICATE REMOVAL
   ========================================================= */
 
   const unique = [];
-  const seenUrls = new Set();
+
+  const seenUrls =
+    new Set();
+
+  const seenTitles =
+    new Set();
 
 
   for (
-    const item of allItems
+    const item
+    of allItems
   ) {
 
-    const key =
+    const urlKey =
       normalizeUrl(
         item.url
       );
 
 
-    if (!key) continue;
+    /*
+     * Нормализуем заголовок,
+     * чтобы 161.RU и 93.RU
+     * с одинаковой новостью
+     * считались одним материалом.
+     */
+
+    const titleKey =
+      cleanText(
+        item.title
+      )
+        .toLowerCase()
+        .replace(
+          /[^a-zа-яё0-9]+/gi,
+          " "
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
 
     if (
-      seenUrls.has(key)
+      urlKey &&
+      seenUrls.has(urlKey)
     ) {
+
       continue;
+
     }
 
 
-    seenUrls.add(key);
+    if (
+      titleKey &&
+      seenTitles.has(titleKey)
+    ) {
 
-    unique.push(item);
+      continue;
+
+    }
+
+
+    if (urlKey) {
+
+      seenUrls.add(
+        urlKey
+      );
+
+    }
+
+
+    if (titleKey) {
+
+      seenTitles.add(
+        titleKey
+      );
+
+    }
+
+
+    unique.push(
+      item
+    );
 
   }
 
 
   /* =========================================================
-     GLOBAL SORT
+     SORT
   ========================================================= */
 
   unique.sort(
@@ -1813,12 +2216,14 @@ export default async function handler(req, res) {
 
       const da =
         new Date(
-          a.date || "1970-01-01"
+          a.date ||
+          "1970-01-01"
         ).getTime();
 
       const db =
         new Date(
-          b.date || "1970-01-01"
+          b.date ||
+          "1970-01-01"
         ).getTime();
 
       return db - da;
@@ -1828,7 +2233,7 @@ export default async function handler(req, res) {
 
 
   /* =========================================================
-     FINAL RESPONSE
+     RESPONSE
   ========================================================= */
 
   return res.status(200).json({
