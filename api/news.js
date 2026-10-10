@@ -304,17 +304,48 @@ html,
 )
 );
 }
+function isBadArticleImage(url) {
+  if (!url || typeof url !== "string") return true;
+  return /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf|noimage|blank-image|fallback-image)/i.test(url);
+}
+
+function getStructuredArticleImage(html, baseUrl) {
+  const article = extractJsonLdArticle(html);
+  if (!article || !article.image) return "";
+
+  const values = Array.isArray(article.image) ? article.image : [article.image];
+  for (const value of values) {
+    let raw = "";
+    if (typeof value === "string") raw = value;
+    else if (value && typeof value === "object") {
+      raw = value.url || value.contentUrl || value.thumbnailUrl || "";
+    }
+    const normalized = normalizeUrl(raw, baseUrl);
+    if (normalized && !isBadArticleImage(normalized)) return normalized;
+  }
+  return "";
+}
+
 function extractImage(html, baseUrl, sourceKey = "") {
   const metaImage = extractMeta(html, [
     "og:image",
     "og:image:url",
     "twitter:image"
   ]);
-  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf)/i;
+  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf|noimage|blank-image|fallback-image)/i;
   const candidates = extractImageCandidates(html, baseUrl);
   const normalizedMeta = metaImage ? normalizeUrl(metaImage, baseUrl) : "";
 
   if (sourceKey === "161ru" || sourceKey === "93ru") {
+    // В первую очередь используем image из JSON-LD конкретной статьи.
+    // Ранее список кандидатов из общего HTML-шаблона мог перезаписать
+    // корректное изображение статьи общей картинкой-заглушкой.
+    const structuredImage = getStructuredArticleImage(html, baseUrl);
+    if (structuredImage) return structuredImage;
+
+    // Затем — OG/Twitter image, если URL не похож на техническую заглушку.
+    if (normalizedMeta && !badImage.test(normalizedMeta)) return normalizedMeta;
+
     const isNewsCdn = url => {
       try {
         const host = new URL(url).hostname.toLowerCase();
@@ -326,13 +357,6 @@ function extractImage(html, baseUrl, sourceKey = "") {
       }
     };
     const goodCandidates = candidates.filter(url => isNewsCdn(url) && !badImage.test(url));
-
-    // Не подменяем картинку статьи первым попавшимся изображением из HTML:
-    // в начале разметки часто находятся общие изображения/заглушки сайта.
-    // Сначала используем og:image, а остальные кандидаты — только как fallback.
-    if (normalizedMeta && isNewsCdn(normalizedMeta) && !badImage.test(normalizedMeta)) {
-      return normalizedMeta;
-    }
     return goodCandidates[0] || candidates.find(url => !badImage.test(url)) || "";
   }
 
@@ -1009,55 +1033,45 @@ text.includes(word)
 );
 }
 const DOMRF_RELEVANT_WORDS = [
-  "ипотек",
-  "недвижим",
-  "квартир",
-  "жиль",
-  "новостро",
-  "застрой",
-  "строитель",
-  "эскроу",
-  "аренд",
-  "росреестр",
-  "егрн",
-  "кадастр",
-  "земел",
-  "ижс",
-  "маткапитал",
-  "семейн",
-  "жилищ",
-  "участок",
-  "собственн",
-  "покупк квартир",
-  "продаж квартир",
-  "долев",
-  "девелоп",
-  "коттедж",
-  "загородн",
-  "домостро",
-  "домовлад",
-  "рынок жилья",
-  "строить дом",
-  "строительств дома",
-  "частный дом"
+"ипотек",
+"ключев",
+"недвижим",
+"квартир",
+"жиль",
+"дом",
+"новостро",
+"застрой",
+"строитель",
+"эскроу",
+"аренд",
+"росреестр",
+"егрн",
+"кадастр",
+"земел",
+"ижс",
+"маткапитал",
+"семейн",
+"жку",
+"коммунальн",
+"жилищ",
+"участок",
+"собственн",
+"покупк",
+"продаж",
+"кредит",
+"ставк",
+"банк",
+"госуслуг"
 ];
-
-// Тематика СПРОСИ.ДОМ.РФ шире недвижимости: отсекаем социальные,
-// пенсионные и коммунальные публикации, даже если в тексте случайно
-// встречаются слова «дом», «жильё» или «банк».
-const DOMRF_IRRELEVANT_TITLE = /пенси|социальн(?:ое|ые|ых)?\s+выплат|детск(?:ие|их)\s+пособ|пособи|жкх|жилищно[- ]коммунальн|коммунальн(?:ые|ых)?\s+услуг|тариф(?:ы|ов)?\s+жкх|отоплени|водоснабжен|электроснабжен|газоснабжен|капремонт|больничн(?:ый|ого|ые)|здравоохранен|минздрав|лекарств|вклад(?:ы|ов)\s+в\s+банке|страховани[ея]\s+вкладов/i;
-
 function isDomrfRelevant(item) {
-  const title = String(item.title || "")
-    .toLowerCase()
-    .replace(/ё/g, "е");
-  const text = `${title} ${item.description || ""}`
-    .toLowerCase()
-    .replace(/ё/g, "е");
-
-  if (DOMRF_IRRELEVANT_TITLE.test(title)) return false;
-
-  return DOMRF_RELEVANT_WORDS.some(word => text.includes(word));
+const text =
+`${item.title} ${item.description}`
+.toLowerCase()
+.replace(/ё/g, "е");
+return DOMRF_RELEVANT_WORDS.some(
+word =>
+text.includes(word)
+);
 }
 /* =========================================================
 TOPIC
@@ -1198,14 +1212,33 @@ extractDescription(html);
  * JSON-LD может содержать одну и ту же служебную картинку
  * для всех материалов.
  */
-if (sourceKey === "domrf") {
-  // У ДОМ.РФ JSON-LD нередко указывает общую служебную картинку.
-  const extractedImage = extractImage(html, url, sourceKey);
-  if (extractedImage) image = extractedImage;
+if (
+  sourceKey === "161ru" ||
+  sourceKey === "93ru" ||
+  sourceKey === "domrf"
+) {
+  const extractedImage =
+    extractImage(
+      html,
+      url,
+      sourceKey
+    );
+
+  // Не перезаписываем корректное изображение из JSON-LD.
+  // Перезапись нужна только если оно отсутствует или явно служебное.
+  if (
+    extractedImage &&
+    (!image || isBadArticleImage(image))
+  ) {
+    image = extractedImage;
+  }
 } else if (!image) {
-  // Для 161.RU и 93.RU сначала сохраняем image из JSON-LD статьи:
-  // он обычно точнее, чем первый img-кандидат в HTML (часто это заглушка).
-  image = extractImage(html, url, sourceKey);
+  image =
+    extractImage(
+      html,
+      url,
+      sourceKey
+    );
 }
 if (!publishedAt) {
 publishedAt =
@@ -1413,10 +1446,7 @@ isYandexForeignContent(item)
 stats.rejected++;
 continue;
 }
-if (sourceKey === "domrf" && !isDomrfRelevant(item)) {
-  stats.rejected++;
-  continue;
-}
+/* Не отбрасываем новости ДОМ.РФ по ключевым словам: темы источника шире. */
 items.push(item);
 } catch {
 stats.failed++;
