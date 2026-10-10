@@ -258,6 +258,7 @@ module.exports = async (req, res) => {
       messageId: String(messageId),
       chatId,
       text,
+      markup: message?.body?.markup || message?.markup || [],
       attachments,
       links,
       cards: makeCards(text, String(messageId)),
