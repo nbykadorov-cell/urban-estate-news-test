@@ -305,118 +305,66 @@ html,
 );
 }
 function extractImage(html, baseUrl, sourceKey = "") {
-  const metaImage = extractMeta(
-    html,
-    [
-      "og:image",
-      "og:image:url",
-      "twitter:image"
-    ]
-  );
+  const metaImage = extractMeta(html, [
+    "og:image",
+    "og:image:url",
+    "twitter:image"
+  ]);
+  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf)/i;
+  const candidates = extractImageCandidates(html, baseUrl);
+  const normalizedMeta = metaImage ? normalizeUrl(metaImage, baseUrl) : "";
 
-  const badImage =
-    /(?:logo|favicon|sprite|icon|avatar|placeholder|default|ring-sprosi|sprosi\.domrf)/i;
-
-  const candidates = extractImageCandidates(
-    html,
-    baseUrl
-  );
-
-  /*
-   * 161.RU и 93.RU используют CDN hsmedia.ru.
-   * Иногда правильная картинка есть в JSON-LD/og:image,
-   * а иногда она присутствует только среди <img>/<source>
-   * или в JSON страницы.
-   */
-  if (
-    sourceKey === "161ru" ||
-    sourceKey === "93ru"
-  ) {
-    const hsmedia = candidates.find(
-      url =>
-        /(?:^|\.)hsmedia\.ru$/i.test(
-          (() => {
-            try {
-              return new URL(url).hostname;
-            } catch {
-              return "";
-            }
-          })()
-        ) &&
-        !badImage.test(url)
-    );
-
-    if (hsmedia) {
-      return hsmedia;
-    }
-
-    if (
-      metaImage &&
-      !badImage.test(metaImage)
-    ) {
-      const normalized =
-        normalizeUrl(
-          metaImage,
-          baseUrl
-        );
-
-      if (normalized) {
-        return normalized;
+  if (sourceKey === "161ru" || sourceKey === "93ru") {
+    const isNewsCdn = url => {
+      try {
+        const host = new URL(url).hostname.toLowerCase();
+        return host === "hsmedia.ru" || host.endsWith(".hsmedia.ru") ||
+          host === "161.ru" || host.endsWith(".161.ru") ||
+          host === "93.ru" || host.endsWith(".93.ru");
+      } catch {
+        return false;
       }
-    }
+    };
+    const goodCandidates = candidates.filter(url => isNewsCdn(url) && !badImage.test(url));
 
-    return candidates.find(
-      url => !badImage.test(url)
-    ) || "";
+    // На страницах 161.RU/93.RU og:image иногда содержит общую заглушку.
+    // Если в разметке есть другие CDN-картинки, выбираем их вместо og:image.
+    const nonMetaCandidate = goodCandidates.find(url => url !== normalizedMeta);
+    if (nonMetaCandidate) return nonMetaCandidate;
+    if (normalizedMeta && !badImage.test(normalizedMeta)) return normalizedMeta;
+    return goodCandidates[0] || candidates.find(url => !badImage.test(url)) || "";
   }
 
-  /*
-   * ДОМ.РФ часто отдает в og:image/JSON-LD одну и ту же
-   * служебную картинку. Поэтому сначала ищем реальные
-   * изображения статьи, особенно в /upload/medialibrary/.
-   */
   if (sourceKey === "domrf") {
-    const preferred = candidates.find(
-      url =>
-        /\/upload\/medialibrary\//i.test(url) &&
-        !badImage.test(url)
+    const preferred = candidates.find(url =>
+      /\/upload\/medialibrary\//i.test(url) && !badImage.test(url)
     );
+    if (preferred) return preferred;
 
-    if (preferred) {
-      return preferred;
-    }
-
-    const articleImage = candidates.find(
-      url =>
-        !badImage.test(url) &&
-        !/(?:ring-sprosi|sprosi\.domrf|domrf[^/]*logo)/i.test(url)
+    const articleImage = candidates.find(url =>
+      !badImage.test(url) && !/(?:ring-sprosi|sprosi\.domrf|domrf[^/]*logo)/i.test(url)
     );
-
-    if (articleImage) {
-      return articleImage;
-    }
-
-    if (
-      metaImage &&
-      !badImage.test(metaImage)
-    ) {
-      return normalizeUrl(
-        metaImage,
-        baseUrl
-      ) || "";
-    }
-
+    if (articleImage) return articleImage;
+    if (normalizedMeta && !badImage.test(normalizedMeta)) return normalizedMeta;
     return "";
   }
 
-  return metaImage
-    ? (
-        normalizeUrl(
-          metaImage,
-          baseUrl
-        ) || ""
-      )
-    : "";
+  if (sourceKey === "domclick") {
+    const telegramCdn = candidates.find(url => {
+      try {
+        const host = new URL(url).hostname.toLowerCase();
+        return (host === "cdn-telegram.org" || host.endsWith(".cdn-telegram.org") ||
+          host === "telesco.pe" || host.endsWith(".telesco.pe")) && !badImage.test(url);
+      } catch {
+        return false;
+      }
+    });
+    if (telegramCdn) return telegramCdn;
+  }
+
+  return normalizedMeta && !badImage.test(normalizedMeta)
+    ? normalizedMeta
+    : candidates.find(url => !badImage.test(url)) || "";
 }
 
 function extractImageCandidates(html, baseUrl) {
@@ -908,23 +856,22 @@ return false;
 }
 }
 function isAllowedDomrf(url) {
-try {
-const u =
-new URL(url);
-if (
-!/xn--h1alcedd\.xn--d1aqf\.xn--p1ai$/i.test(
-u.hostname
-)
-) {
-return false;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const allowedHost = host === "xn--h1alcedd.xn--d1aqf.xn--p1ai" ||
+      host.endsWith(".xn--h1alcedd.xn--d1aqf.xn--p1ai");
+    if (!allowedHost || !/^https?:$/.test(u.protocol)) return false;
+
+    // У ДОМ.РФ менялись URL материалов: разрешаем новостные разделы
+    // и отдельные статьи, но не главную страницу/служебные страницы.
+    return /^\/(?:news|press|article|articles|publication|publications)(?:\/|$)/i.test(u.pathname) &&
+      !/^\/(?:news|press|article|articles|publication|publications)\/?$/i.test(u.pathname);
+  } catch {
+    return false;
+  }
 }
-return /^\/news\/.+/i.test(
-u.pathname
-);
-} catch {
-return false;
-}
-}
+
 function isAllowedDomclick(url) {
 try {
 const u =
@@ -1469,14 +1416,7 @@ isYandexForeignContent(item)
 stats.rejected++;
 continue;
 }
-if (
-sourceKey ===
-"domrf" &&
-!isDomrfRelevant(item)
-) {
-stats.rejected++;
-continue;
-}
+/* Не отбрасываем новости ДОМ.РФ по ключевым словам: темы источника шире. */
 items.push(item);
 } catch {
 stats.failed++;
@@ -1673,14 +1613,47 @@ title
 );
 }
 function extractTelegramImage(block) {
-if (!block) return "";
-const patterns = [
-/(?:background-image\s*:\s*url\(["']?)(https?:\/\/[^\s"'\)]+)(?:["']?\))/i,
-/<img\b[^>]+src=["'](https?:\/\/[^"']+)["']/i,
-/<source\b[^>]+src=["'](https?:\/\/[^"']+)["']/i
-];
-for (const pattern of patterns) { const match = block.match(pattern); if (match && match[1]) return normalizeUrl(match[1], "https://t.me/") || ""; }
-return "";
+  if (!block) return "";
+  const candidates = [];
+  const add = value => {
+    if (!value) return;
+    const normalized = normalizeUrl(
+      String(value).replace(/&amp;/gi, "&").replace(/\\\//g, "/"),
+      "https://t.me/s/domclick"
+    );
+    if (!normalized || candidates.includes(normalized)) return;
+    candidates.push(normalized);
+  };
+
+  // Telegram часто помещает фото в background-image у .tgme_widget_message_photo_wrap.
+  const bg = /background-image\s*:\s*url\(\s*(["']?)(https?:\/\/[^"')\s]+)\1\s*\)/gi;
+  let match;
+  while ((match = bg.exec(block))) add(match[2]);
+
+  // Дополнительно обрабатываем обычные и lazy-loaded атрибуты.
+  const tagRegex = /<(?:img|source|div)\b[^>]*>/gi;
+  while ((match = tagRegex.exec(block))) {
+    const tag = match[0];
+    const attrs = /\b(?:src|data-src|data-original|srcset|data-srcset|style)=["']([^"']+)["']/gi;
+    let attr;
+    while ((attr = attrs.exec(tag))) {
+      const value = attr[1];
+      const urlMatch = value.match(/https?:\/\/[^\s,"')]+/i);
+      if (urlMatch) add(urlMatch[0]);
+    }
+  }
+
+  const good = candidates.find(url => {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      return (host === "cdn-telegram.org" || host.endsWith(".cdn-telegram.org") ||
+        host === "telesco.pe" || host.endsWith(".telesco.pe")) &&
+        !/(?:avatar|logo|icon|placeholder)/i.test(url);
+    } catch {
+      return false;
+    }
+  });
+  return good || candidates.find(url => !/(?:avatar|logo|icon|placeholder)/i.test(url)) || "";
 }
 
 async function parseDomclick(
@@ -1839,6 +1812,9 @@ telegramText
 ) {
 data.description =
 telegramText;
+}
+if (!data.image) {
+  data.image = extractTelegramImage(post.html);
 }
 if (
 data.title &&
@@ -2621,7 +2597,7 @@ function applyImageProxy(items, req) {
     return {
       ...item,
       image:
-        `${apiOrigin}/api/image?url=${encodeURIComponent(item.image)}`
+        `${apiOrigin}/api/image?source=${encodeURIComponent(item.source)}&url=${encodeURIComponent(item.image)}`
     };
   });
 }
