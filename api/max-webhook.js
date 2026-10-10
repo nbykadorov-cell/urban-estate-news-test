@@ -111,14 +111,52 @@ function getAttachments(message) {
   return Array.isArray(attachments) ? attachments : [];
 }
 
-function extractLinks(text) {
-  const matches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
 
-  return [...new Set(matches)].map((url) => ({
-    url: url.replace(/[.,!?;:]+$/, ""),
-    title: "",
-  }));
+function extractLinks(text, message) {
+  const found = new Map();
+
+  // 1. Ссылки, которые явно присутствуют в тексте
+  const matches = String(text || "").match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
+
+  for (const rawUrl of matches) {
+    const url = rawUrl.replace(/[.,!?;:]+$/, "");
+    if (url) {
+      found.set(url, {
+        url,
+        title: ""
+      });
+    }
+  }
+
+  // 2. Ссылки, добавленные через форматирование MAX
+  const body = message?.body || {};
+  const markup = Array.isArray(body.markup) ? body.markup : [];
+
+  for (const item of markup) {
+    const type = String(item.type || "").toLowerCase();
+    const value = item.url || item.href || item.payload?.url;
+
+    if (
+      (type.includes("link") || value) &&
+      typeof value === "string" &&
+      /^https?:\/\//i.test(value)
+    ) {
+      const title =
+        item.text ||
+        item.value ||
+        item.payload?.text ||
+        "";
+
+      found.set(value, {
+        url: value,
+        title: String(title)
+      });
+    }
+  }
+
+  return [...found.values()];
 }
+
 
 function makeCards(text, messageId) {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
@@ -213,7 +251,7 @@ module.exports = async (req, res) => {
 
     const text = getText(message);
     const attachments = getAttachments(message);
-    const links = extractLinks(text);
+    const links = extractLinks(text, message);
     const now = Date.now();
 
     const publication = {
