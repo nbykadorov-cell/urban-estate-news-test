@@ -57,6 +57,7 @@ module.exports = async (req, res) => {
     }));
   }
 
+  
   try {
     const ids = await redis("SMEMBERS", MESSAGE_INDEX) || [];
     const publications = [];
