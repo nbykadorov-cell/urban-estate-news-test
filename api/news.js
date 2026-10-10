@@ -332,32 +332,49 @@ function extractImage(html, baseUrl, sourceKey = "") {
     "og:image:url",
     "twitter:image"
   ]);
-  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf|noimage|blank-image|fallback-image)/i;
+  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf|noimage|blank-image|fallback-image|social-share|share-image)/i;
   const candidates = extractImageCandidates(html, baseUrl);
   const normalizedMeta = metaImage ? normalizeUrl(metaImage, baseUrl) : "";
 
   if (sourceKey === "161ru" || sourceKey === "93ru") {
-    // В первую очередь используем image из JSON-LD конкретной статьи.
-    // Ранее список кандидатов из общего HTML-шаблона мог перезаписать
-    // корректное изображение статьи общей картинкой-заглушкой.
-    const structuredImage = getStructuredArticleImage(html, baseUrl);
-    if (structuredImage) return structuredImage;
-
-    // Затем — OG/Twitter image, если URL не похож на техническую заглушку.
-    if (normalizedMeta && !badImage.test(normalizedMeta)) return normalizedMeta;
-
-    const isNewsCdn = url => {
-      try {
-        const host = new URL(url).hostname.toLowerCase();
-        return host === "hsmedia.ru" || host.endsWith(".hsmedia.ru") ||
-          host === "161.ru" || host.endsWith(".161.ru") ||
-          host === "93.ru" || host.endsWith(".93.ru");
-      } catch {
-        return false;
+    // У этих порталов og:image и JSON-LD иногда содержат общую обложку сайта.
+    // Поэтому сначала рассматриваем все реальные img/lazy-src/srcset из HTML,
+    // а метаданные используем только как запасной вариант.
+    const jsonLd = extractJsonLdArticle(html);
+    const structured = [];
+    const addStructured = value => {
+      if (!value) return;
+      if (typeof value === "string") {
+        const normalized = normalizeUrl(value, baseUrl);
+        if (normalized && !badImage.test(normalized)) structured.push(normalized);
+      } else if (typeof value === "object") {
+        addStructured(value.url || value.contentUrl || value.thumbnailUrl);
       }
     };
-    const goodCandidates = candidates.filter(url => isNewsCdn(url) && !badImage.test(url));
-    return goodCandidates[0] || candidates.find(url => !badImage.test(url)) || "";
+    if (jsonLd) {
+      const values = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image];
+      values.forEach(addStructured);
+    }
+
+    const all = [...new Set([...candidates, ...structured, normalizedMeta].filter(Boolean))]
+      .filter(url => !badImage.test(url));
+    const score = url => {
+      let value = 0;
+      try {
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+        const path = u.pathname.toLowerCase();
+        if (host === "hsmedia.ru" || host.endsWith(".hsmedia.ru")) value += 100;
+        else if (host === "161.ru" || host.endsWith(".161.ru") || host === "93.ru" || host.endsWith(".93.ru")) value += 45;
+        if (/\.(?:jpe?g|png|webp|avif)(?:$|\?)/i.test(url)) value += 15;
+        if (/(?:\/upload\/|\/images?\/|\/media\/|\/resize\/|\/original\/|\/article\/)/i.test(path)) value += 8;
+        if (/(?:logo|default|placeholder|stub|banner|share|social)/i.test(path)) value -= 200;
+        if (u.searchParams.has("width") || u.searchParams.has("w")) value += 2;
+      } catch {}
+      return value;
+    };
+    all.sort((a, b) => score(b) - score(a));
+    return all[0] || "";
   }
 
   if (sourceKey === "domrf") {
@@ -390,6 +407,44 @@ function extractImage(html, baseUrl, sourceKey = "") {
   return normalizedMeta && !badImage.test(normalizedMeta)
     ? normalizedMeta
     : candidates.find(url => !badImage.test(url)) || "";
+}
+
+function getArticleImageCandidates(html, baseUrl, sourceKey = "") {
+  const badImage = /(?:logo|favicon|sprite|icon|avatar|placeholder|default|no[-_]?image|empty|stub|banner-default|ring-sprosi|sprosi\.domrf|noimage|blank-image|fallback-image|social-share|share-image)/i;
+  const result = [];
+  const add = value => {
+    if (!value) return;
+    if (typeof value === "object") {
+      if (Array.isArray(value)) return value.forEach(add);
+      return add(value.url || value.contentUrl || value.thumbnailUrl);
+    }
+    const normalized = normalizeUrl(value, baseUrl);
+    if (normalized && !badImage.test(normalized) && !result.includes(normalized)) result.push(normalized);
+  };
+
+  const article = extractJsonLdArticle(html);
+  if (article) add(article.image);
+  add(extractMeta(html, ["og:image", "og:image:url", "twitter:image"]));
+  extractImageCandidates(html, baseUrl).forEach(add);
+
+  if (sourceKey === "161ru" || sourceKey === "93ru") {
+    const score = url => {
+      try {
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+        const path = u.pathname.toLowerCase();
+        let n = 0;
+        if (host === "hsmedia.ru" || host.endsWith(".hsmedia.ru")) n += 100;
+        else if (host === "161.ru" || host.endsWith(".161.ru") || host === "93.ru" || host.endsWith(".93.ru")) n += 45;
+        if (/\.(?:jpe?g|png|webp|avif)$/i.test(path)) n += 15;
+        if (/(?:\/upload\/|\/images?\/|\/media\/|\/resize\/|\/original\/)/i.test(path)) n += 8;
+        if (/(?:logo|default|placeholder|stub|banner|share|social)/i.test(path)) n -= 200;
+        return n;
+      } catch { return -100; }
+    };
+    result.sort((a, b) => score(b) - score(a));
+  }
+  return result;
 }
 
 function extractImageCandidates(html, baseUrl) {
@@ -1224,11 +1279,11 @@ if (
       sourceKey
     );
 
-  // Не перезаписываем корректное изображение из JSON-LD.
-  // Перезапись нужна только если оно отсутствует или явно служебное.
+  // Для 161.RU/93.RU всегда используем source-specific выбор:
+  // JSON-LD/og:image у этих страниц может быть общей заглушкой.
   if (
     extractedImage &&
-    (!image || isBadArticleImage(image))
+    (sourceKey === "161ru" || sourceKey === "93ru" || !image || isBadArticleImage(image))
   ) {
     image = extractedImage;
   }
@@ -1255,6 +1310,7 @@ cleanDescription(
 description
 ),
 image,
+imageCandidates: getArticleImageCandidates(html, url, sourceKey),
 publishedAt
 };
 }
@@ -1269,6 +1325,7 @@ url,
 title,
 description,
 image,
+imageCandidates = [],
 publishedAt
 }) {
 if (!title || !url) {
@@ -1322,10 +1379,69 @@ url:
 cleanUrl,
 image:
 image || "",
+imageCandidates: Array.isArray(imageCandidates) ? imageCandidates : [],
 publishedAt:
 date.toISOString()
 };
 }
+function isRelevantDomrf(item) {
+  const text = `${item.title || ""} ${item.description || ""}`.toLowerCase().replace(/ё/g, "е");
+
+  // Эти темы регулярно встречаются в широком разделе «Спроси.ДОМ.РФ»,
+  // но не относятся к новостям рынка недвижимости для этой ленты.
+  const offTopic = /пенси(?:я|и|он|онер)|социальн(?:ая|ые) выплат|пособи[ея]|жкх|жилищно-коммунал|коммунальн(?:ые|ых) услуг|оплат(?:а|ы) жк|тариф(?:ы|ов) на коммунал|счетчик(?:и|ов)|капремонт многоквартир|вывоз мусор|газификац(?:ия|ии) насел|электроэнерг|субсид(?:ия|ии) на оплату услуг|старые вещи|потребительск(?:ий|ого) кредит/i;
+  if (offTopic.test(text)) return false;
+
+  // Пропускаем только темы, имеющие прямое отношение к жилью и рынку недвижимости.
+  const onTopic = /недвижим|ипотек|новостро|застройщик|жил(?:ье|ья|ой комплекс|ых домов|ого дома)|квартир|покупк[аеу] жиль|продаж[аеу] квартир|рынок жилья|рынок недвижимости|эскроу|долев(?:ое|ого) строительств|строительств(?:о|а) жил|маткапитал|материнск(?:ий|ого) капитал|семейн(?:ая|ой) ипотек|льготн(?:ая|ой) ипотек|аренд(?:а|ы) жилья|собственност(?:ь|и) на жиль|кадастров(?:ая|ой) стоимость|росреестр|земельн(?:ый|ого) участ|квадратн(?:ый|ого) метр|проектн(?:ое|ого) финансирован|перепланировк|приемк[аеу] квартир|ремонт квартир|первичн(?:ый|ого) рынок|вторичн(?:ый|ого) рынок|жилищн(?:ый|ого) кредит|дом рф/i;
+  return onTopic.test(text);
+}
+
+function resolveRepeatedPortalImages(items) {
+  const portalSources = new Set(["161ru", "93ru"]);
+  const usedBySource = new Map();
+  const currentCounts = new Map();
+  const candidateCounts = new Map();
+
+  for (const item of items) {
+    if (!portalSources.has(item.source)) continue;
+    const key = `${item.source}::`;
+    if (item.image) currentCounts.set(key + item.image, (currentCounts.get(key + item.image) || 0) + 1);
+    for (const url of new Set(item.imageCandidates || [])) {
+      candidateCounts.set(key + url, (candidateCounts.get(key + url) || 0) + 1);
+    }
+  }
+
+  // Сначала новые статьи, чтобы свежие новости получали лучшие доступные изображения.
+  const ordered = [...items].sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  for (const item of ordered) {
+    if (!portalSources.has(item.source)) continue;
+    const used = usedBySource.get(item.source) || new Set();
+    const candidates = Array.isArray(item.imageCandidates) ? item.imageCandidates : [];
+    const current = item.image;
+    const key = `${item.source}::`;
+    const options = [...new Set([...candidates, current].filter(Boolean))];
+
+    // В первую очередь выбираем URL, который не является общей картинкой,
+    // встречающейся на нескольких страницах этого портала.
+    const selected = options.find(url =>
+      !used.has(url) &&
+      (candidateCounts.get(key + url) || 0) <= 1 &&
+      (currentCounts.get(key + url) || 0) <= 1
+    ) || options.find(url => !used.has(url));
+
+    if (selected) {
+      item.image = selected;
+      used.add(selected);
+      usedBySource.set(item.source, used);
+    }
+  }
+
+  // Не отправляем служебный список кандидатов в публичный JSON API.
+  for (const item of items) delete item.imageCandidates;
+  return items;
+}
+
 /* =========================================================
 GENERIC SOURCE
 ========================================================= */
@@ -1431,6 +1547,8 @@ description:
 data.description,
 image:
 data.image,
+imageCandidates:
+data.imageCandidates,
 publishedAt:
 data.publishedAt
 });
@@ -1446,7 +1564,10 @@ isYandexForeignContent(item)
 stats.rejected++;
 continue;
 }
-/* Не отбрасываем новости ДОМ.РФ по ключевым словам: темы источника шире. */
+if (sourceKey === "domrf" && !isRelevantDomrf(item)) {
+  stats.rejected++;
+  continue;
+}
 items.push(item);
 } catch {
 stats.failed++;
@@ -2869,6 +2990,10 @@ genericResults.forEach(
   sourcesStats.cian =
     stats;
 }
+
+// У 161.RU и 93.RU не допускаем одну и ту же картинку у нескольких статей,
+// если HTML статьи содержит альтернативные изображения.
+resolveRepeatedPortalImages(allItems);
 
 /*
  * Для "Все" используем только последние 7 дней.
