@@ -7,247 +7,242 @@ const REDIS_TOKEN =
   process.env.UPSTASH_REDIS_REST_TOKEN ||
   process.env.KV_REST_API_TOKEN;
 
-const WEBHOOK_SECRET = process.env.MAX_WEBHOOK_SECRET;
-const TARGET_CHAT_ID = process.env.MAX_TARGET_CHAT_ID;
+const MESSAGE_PREFIX = "urban-estate:max:message:";
+const MESSAGE_INDEX = "urban-estate:max:message-ids";
 
-const PREFIX = "urban-estate:max:";
-const INDEX_KEY = PREFIX + "message-ids";
+const json = (res, status, data) => {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Max-Bot-Api-Secret");
+  res.end(JSON.stringify(data));
+};
 
-async function redisCommand(command) {
+async function redis(command, ...args) {
   if (!REDIS_URL || !REDIS_TOKEN) {
-    throw new Error("Upstash Redis environment variables are missing");
+    throw new Error("Не заданы переменные Redis");
   }
 
-  const response = await fetch(REDIS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + REDIS_TOKEN,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(command)
-  });
+  const path = [command, ...args]
+    .map((part) => encodeURIComponent(String(part)))
+    .join("/");
 
-  const result = await response.json();
+  const response = await fetch(
+    `${REDIS_URL.replace(/\/$/, "")}/${path}`,
+    {
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+      },
+    }
+  );
 
-  if (!response.ok || result.error) {
-    throw new Error("Redis request failed");
+  const data = await response.json();
+
+  if (!response.ok || data.error) {
+    throw new Error(data.error || `Redis HTTP ${response.status}`);
   }
 
-  return result.result;
+  return data.result;
 }
 
 function getMessage(update) {
-  return update.message ||
+  return (
+    update.message ||
     update.edited_message ||
     update.data?.message ||
-    null;
+    update.message_created?.message ||
+    update.message_edited?.message ||
+    null
+  );
 }
 
-function getChatId(update, message) {
-  return update.chat_id ??
-    message?.recipient?.chat_id ??
-    message?.recipient?.chatId ??
-    message?.chat_id ??
-    message?.chatId ??
-    null;
+function getEventType(update) {
+  return (
+    update.update_type ||
+    update.type ||
+    update.event ||
+    ""
+  ).toLowerCase();
 }
 
 function getMessageId(update, message) {
-  return message?.body?.mid ??
-    message?.message_id ??
-    message?.id ??
-    update.message_id ??
-    update.mid ??
-    update.data?.message_id ??
-    null;
+  return (
+    message?.body?.mid ||
+    message?.mid ||
+    message?.message_id ||
+    message?.id ||
+    update.message_id ||
+    update.mid ||
+    update.data?.message_id ||
+    update.data?.mid ||
+    update.message?.body?.mid ||
+    null
+  );
+}
+
+function getChatId(update, message) {
+  return (
+    message?.recipient?.chat_id ||
+    message?.recipient?.chatId ||
+    message?.chat_id ||
+    message?.chatId ||
+    update.chat_id ||
+    update.chatId ||
+    update.recipient?.chat_id ||
+    update.data?.chat_id ||
+    null
+  );
 }
 
 function getText(message) {
   const body = message?.body || {};
-  const parts = [];
-
-  if (typeof body.text === "string") {
-    parts.push(body.text);
-  }
-
-  if (Array.isArray(body.attachments)) {
-    parts.push(JSON.stringify(body.attachments));
-  }
-
-  return parts.join("\n");
+  return String(
+    body.text ??
+    message?.text ??
+    message?.caption ??
+    ""
+  ).trim();
 }
 
-function extractCards(text, messageId, timestamp) {
-  const urlRegex = /https?:\/\/[^\s<>"']+/gi;
-  const found = text.match(urlRegex) || [];
-  const urls = [...new Set(
-    found.map(url => url.replace(/[),.;!?]+$/g, ""))
-      .filter(url => /^https?:\/\//i.test(url))
-  )];
+function getAttachments(message) {
+  const body = message?.body || {};
+  const attachments = body.attachments ?? message?.attachments ?? [];
+  return Array.isArray(attachments) ? attachments : [];
+}
 
-  const lines = text.split(/\r?\n/).map(line => line.trim());
+function extractLinks(text) {
+  const matches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
 
-  return urls.map((url, index) => {
-    const lineIndex = lines.findIndex(line => line.includes(url));
-    let title = "";
+  return [...new Set(matches)].map((url) => ({
+    url: url.replace(/[.,!?;:]+$/, ""),
+    title: "",
+  }));
+}
 
-    if (lineIndex >= 0) {
-      title = lines[lineIndex]
-        .replace(url, "")
-        .replace(/^[\s\-–—:|•]+|[\s\-–—:|•]+$/g, "")
-        .trim();
+function makeCards(text, messageId) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
 
-      if (!title && lineIndex > 0) {
-        title = lines[lineIndex - 1].trim();
-      }
-    }
+  return extractLinks(text).map((link, index) => {
+    const lineIndex = lines.findIndex((line) => line.includes(link.url));
+    const sameLine = lineIndex >= 0 ? lines[lineIndex] : "";
+    const previousLine = lineIndex > 0 ? lines[lineIndex - 1] : "";
+
+    const title = (
+      sameLine.replace(link.url, "").trim() ||
+      previousLine ||
+      "Открыть ссылку"
+    ).slice(0, 180);
 
     return {
-      id: String(messageId) + "_" + index,
-      title: title || "Открыть ссылку",
-      url,
-      sourceMessageId: String(messageId),
-      updatedAt: timestamp || Date.now()
+      id: `${messageId}_${index}`,
+      title,
+      url: link.url,
+      sourceMessageId: messageId,
     };
   });
 }
 
-module.exports = async function handler(req, res) {
+module.exports = async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   if (req.method === "GET") {
-    return res.status(200).json({
+    return json(res, 200, {
       ok: true,
-      endpoint: "max-webhook"
+      endpoint: "max-webhook",
     });
   }
 
   if (req.method !== "POST") {
-    res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ error: "Method not allowed" });
+    return json(res, 405, { ok: false, error: "Method not allowed" });
   }
 
-  if (!WEBHOOK_SECRET || !TARGET_CHAT_ID) {
-    return res.status(500).json({
-      error: "MAX webhook environment variables are missing"
-    });
+  const secret = process.env.MAX_WEBHOOK_SECRET;
+  const receivedSecret = req.headers["x-max-bot-api-secret"];
+
+  if (secret && receivedSecret !== secret) {
+    return json(res, 401, { ok: false, error: "Unauthorized" });
   }
-
-  const suppliedSecret =
-    req.headers["x-max-bot-api-secret"];
-
-  if (suppliedSecret !== WEBHOOK_SECRET) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  let update = req.body;
-
-  if (typeof update === "string") {
-    try {
-      update = JSON.parse(update);
-    } catch {
-      return res.status(400).json({ error: "Invalid JSON" });
-    }
-  }
-
-  if (!update || typeof update !== "object") {
-    return res.status(400).json({ error: "Invalid update" });
-  }
-
-  const type = update.update_type || "";
-  const message = getMessage(update);
-  const chatId = getChatId(update, message);
-
-  // Обрабатываем только сообщения нужной группы.
-  if (
-    chatId === null ||
-    String(chatId) !== String(TARGET_CHAT_ID)
-  ) {
-    return res.status(200).json({
-      ok: true,
-      ignored: "different chat"
-    });
-  }
-
-  const messageId = getMessageId(update, message);
-
-  if (messageId === null) {
-    return res.status(200).json({
-      ok: true,
-      ignored: "message ID not found"
-    });
-  }
-
-  const redisKey = PREFIX + "message:" + String(messageId);
 
   try {
-    if (type === "message_removed") {
-      await redisCommand(["DEL", redisKey]);
-      await redisCommand([
-        "SREM",
-        INDEX_KEY,
-        String(messageId)
-      ]);
+    const update = req.body || {};
+    const eventType = getEventType(update);
 
-      return res.status(200).json({ ok: true });
+    const message = getMessage(update);
+    const messageId = getMessageId(update, message);
+
+    const chatId = String(getChatId(update, message) ?? "");
+    const targetChatId = String(process.env.MAX_TARGET_CHAT_ID ?? "");
+
+    if (targetChatId && chatId && chatId !== targetChatId) {
+      return json(res, 200, { ok: true, skipped: "another chat" });
     }
 
-    if (
-      type !== "message_created" &&
-      type !== "message_edited"
-    ) {
-      return res.status(200).json({
+    const isRemoved =
+      eventType.includes("removed") ||
+      eventType.includes("deleted");
+
+    if (!messageId) {
+      return json(res, 200, {
         ok: true,
-        ignored: "unsupported event"
+        skipped: "message id not found",
+        eventType,
       });
     }
 
+    const redisKey = `${MESSAGE_PREFIX}${messageId}`;
+
+    if (isRemoved) {
+      await redis("DEL", redisKey);
+      await redis("SREM", MESSAGE_INDEX, messageId);
+
+      return json(res, 200, { ok: true, removed: messageId });
+    }
+
     if (!message) {
-      return res.status(200).json({
+      return json(res, 200, {
         ok: true,
-        ignored: "message content not found"
+        skipped: "message body not found",
+        eventType,
       });
     }
 
     const text = getText(message);
-    const timestamp = update.timestamp || Date.now();
-    const cards = extractCards(text, messageId, timestamp);
+    const attachments = getAttachments(message);
+    const links = extractLinks(text);
+    const now = Date.now();
 
-    // Редактирование сообщения без ссылок удаляет его старые карточки.
-    if (cards.length === 0) {
-      await redisCommand(["DEL", redisKey]);
-      await redisCommand([
-        "SREM",
-        INDEX_KEY,
-        String(messageId)
-      ]);
-    } else {
-      await redisCommand([
-        "SET",
-        redisKey,
-        JSON.stringify({
-          messageId: String(messageId),
-          chatId: String(chatId),
-          cards,
-          updatedAt: Date.now()
-        })
-      ]);
+    const publication = {
+      messageId: String(messageId),
+      chatId,
+      text,
+      attachments,
+      links,
+      cards: makeCards(text, String(messageId)),
+      updatedAt: now,
+      eventType,
+    };
 
-      await redisCommand([
-        "SADD",
-        INDEX_KEY,
-        String(messageId)
-      ]);
-    }
+    await redis("SET", redisKey, JSON.stringify(publication));
+    await redis("SADD", MESSAGE_INDEX, String(messageId));
 
-    return res.status(200).json({
+    return json(res, 200, {
       ok: true,
-      savedCards: cards.length
+      saved: true,
+      messageId: String(messageId),
+      links: links.length,
+      attachments: attachments.length,
     });
   } catch (error) {
-    console.error("MAX webhook processing failed:", error.message);
+    console.error("MAX webhook error:", error);
 
-    return res.status(500).json({
-      error: "Could not save MAX update"
+    return json(res, 500, {
+      ok: false,
+      error: "Webhook processing failed",
     });
   }
 };
-
