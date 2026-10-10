@@ -327,11 +327,12 @@ function extractImage(html, baseUrl, sourceKey = "") {
     };
     const goodCandidates = candidates.filter(url => isNewsCdn(url) && !badImage.test(url));
 
-    // На страницах 161.RU/93.RU og:image иногда содержит общую заглушку.
-    // Если в разметке есть другие CDN-картинки, выбираем их вместо og:image.
-    const nonMetaCandidate = goodCandidates.find(url => url !== normalizedMeta);
-    if (nonMetaCandidate) return nonMetaCandidate;
-    if (normalizedMeta && !badImage.test(normalizedMeta)) return normalizedMeta;
+    // Не подменяем картинку статьи первым попавшимся изображением из HTML:
+    // в начале разметки часто находятся общие изображения/заглушки сайта.
+    // Сначала используем og:image, а остальные кандидаты — только как fallback.
+    if (normalizedMeta && isNewsCdn(normalizedMeta) && !badImage.test(normalizedMeta)) {
+      return normalizedMeta;
+    }
     return goodCandidates[0] || candidates.find(url => !badImage.test(url)) || "";
   }
 
@@ -1008,45 +1009,55 @@ text.includes(word)
 );
 }
 const DOMRF_RELEVANT_WORDS = [
-"ипотек",
-"ключев",
-"недвижим",
-"квартир",
-"жиль",
-"дом",
-"новостро",
-"застрой",
-"строитель",
-"эскроу",
-"аренд",
-"росреестр",
-"егрн",
-"кадастр",
-"земел",
-"ижс",
-"маткапитал",
-"семейн",
-"жку",
-"коммунальн",
-"жилищ",
-"участок",
-"собственн",
-"покупк",
-"продаж",
-"кредит",
-"ставк",
-"банк",
-"госуслуг"
+  "ипотек",
+  "недвижим",
+  "квартир",
+  "жиль",
+  "новостро",
+  "застрой",
+  "строитель",
+  "эскроу",
+  "аренд",
+  "росреестр",
+  "егрн",
+  "кадастр",
+  "земел",
+  "ижс",
+  "маткапитал",
+  "семейн",
+  "жилищ",
+  "участок",
+  "собственн",
+  "покупк квартир",
+  "продаж квартир",
+  "долев",
+  "девелоп",
+  "коттедж",
+  "загородн",
+  "домостро",
+  "домовлад",
+  "рынок жилья",
+  "строить дом",
+  "строительств дома",
+  "частный дом"
 ];
+
+// Тематика СПРОСИ.ДОМ.РФ шире недвижимости: отсекаем социальные,
+// пенсионные и коммунальные публикации, даже если в тексте случайно
+// встречаются слова «дом», «жильё» или «банк».
+const DOMRF_IRRELEVANT_TITLE = /пенси|социальн(?:ое|ые|ых)?\s+выплат|детск(?:ие|их)\s+пособ|пособи|жкх|жилищно[- ]коммунальн|коммунальн(?:ые|ых)?\s+услуг|тариф(?:ы|ов)?\s+жкх|отоплени|водоснабжен|электроснабжен|газоснабжен|капремонт|больничн(?:ый|ого|ые)|здравоохранен|минздрав|лекарств|вклад(?:ы|ов)\s+в\s+банке|страховани[ея]\s+вкладов/i;
+
 function isDomrfRelevant(item) {
-const text =
-`${item.title} ${item.description}`
-.toLowerCase()
-.replace(/ё/g, "е");
-return DOMRF_RELEVANT_WORDS.some(
-word =>
-text.includes(word)
-);
+  const title = String(item.title || "")
+    .toLowerCase()
+    .replace(/ё/g, "е");
+  const text = `${title} ${item.description || ""}`
+    .toLowerCase()
+    .replace(/ё/g, "е");
+
+  if (DOMRF_IRRELEVANT_TITLE.test(title)) return false;
+
+  return DOMRF_RELEVANT_WORDS.some(word => text.includes(word));
 }
 /* =========================================================
 TOPIC
@@ -1187,28 +1198,14 @@ extractDescription(html);
  * JSON-LD может содержать одну и ту же служебную картинку
  * для всех материалов.
  */
-if (
-  sourceKey === "161ru" ||
-  sourceKey === "93ru" ||
-  sourceKey === "domrf"
-) {
-  const extractedImage =
-    extractImage(
-      html,
-      url,
-      sourceKey
-    );
-
-  if (extractedImage) {
-    image = extractedImage;
-  }
+if (sourceKey === "domrf") {
+  // У ДОМ.РФ JSON-LD нередко указывает общую служебную картинку.
+  const extractedImage = extractImage(html, url, sourceKey);
+  if (extractedImage) image = extractedImage;
 } else if (!image) {
-  image =
-    extractImage(
-      html,
-      url,
-      sourceKey
-    );
+  // Для 161.RU и 93.RU сначала сохраняем image из JSON-LD статьи:
+  // он обычно точнее, чем первый img-кандидат в HTML (часто это заглушка).
+  image = extractImage(html, url, sourceKey);
 }
 if (!publishedAt) {
 publishedAt =
@@ -1416,7 +1413,10 @@ isYandexForeignContent(item)
 stats.rejected++;
 continue;
 }
-/* Не отбрасываем новости ДОМ.РФ по ключевым словам: темы источника шире. */
+if (sourceKey === "domrf" && !isDomrfRelevant(item)) {
+  stats.rejected++;
+  continue;
+}
 items.push(item);
 } catch {
 stats.failed++;
