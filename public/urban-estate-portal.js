@@ -2093,7 +2093,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     service &&
 
-                    result.length < 6 &&
+                    result.length < 9 &&
 
                     !result.some(
 
