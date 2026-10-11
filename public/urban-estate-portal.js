@@ -5885,7 +5885,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const phone = devText(entry.phone || entry.telephone || "");
             const email = devText(entry.email || "");
             const parts = [];
-            if (phone) parts.push(`<a href="tel:${devEscape(phone.replace(/[^+\d]/g, ""))}">📱 ${devEscape(phone)}</a>`);
+            if (phone) parts.push(`<a href="tel:${devEscape(phone.replace(/[^+\d]/g, ""))}"> ${devEscape(phone)}</a>`);
             if (email) parts.push(`<a href="mailto:${devEscape(email)}">✉ ${devEscape(email)}</a>`);
             if (name) parts.push(`<span>${devEscape(name)}</span>`);
             if (!parts.length) parts.push(devEscape(JSON.stringify(entry)));
