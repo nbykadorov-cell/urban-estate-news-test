@@ -5889,7 +5889,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (email) parts.push(`<a href="mailto:${devEscape(email)}">✉ ${devEscape(email)}</a>`);
             if (name) parts.push(`<span>${devEscape(name)}</span>`);
             if (!parts.length) parts.push(devEscape(JSON.stringify(entry)));
-            return `<div class="ue-dev-contact">${parts.join(" · ")}</div>`;
+            return `<div class="ue-dev-contact">${parts.join(" ")}</div>`;
         }).join("");
     }
 
