@@ -5849,7 +5849,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function devLinkMarkup(items) {
         const links = devList(items).map(devLinkItem).filter(x => x.url && devSafeUrl(x.url));
         if (!links.length) return "";
-        return `<div class="ue-dev-links">${links.map(link => `<a class="ue-dev-link" href="${devEscape(devSafeUrl(link.url))}" target="_blank" rel="noopener noreferrer">↗ ${devEscape(link.title)}</a>`).join("")}</div>`;
+        return `<div class="ue-dev-links">${links.map(link => `<a class="ue-dev-link" href="${devEscape(devSafeUrl(link.url))}" target="_blank" rel="noopener noreferrer">► ${devEscape(link.title)}</a>`).join("")}</div>`;
     }
 
     function devSection(title, content) {
