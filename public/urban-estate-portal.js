@@ -4001,7 +4001,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const NEWS_LIMIT = 30;
 
-    const NEWS_VISIBLE = 3;
+    const NEWS_VISIBLE = 6;
 
     const NEWS_DAYS = 7;
 
