@@ -2,6 +2,7 @@ const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const PREFIX = "urban-estate:max:message:";
 const INDEX = "urban-estate:max:message-ids";
+
 const GROUPS = {
   "-72201455059710": { city: "Краснодар", category: "МКД" },
   "-72201528984318": { city: "Краснодар", category: "ИЖС" },
@@ -23,102 +24,224 @@ async function redis(command, ...args) {
   return data.result;
 }
 
-const clean = s => String(s || "").replace(/^[\s•·▪▫◦🌐🟣🗂♟📱📞☎️📲]+/u, "").trim();
-function splitSections(text) {
-  const out = [[]];
-  for (const line of String(text || "").split(/\r?\n/)) {
-    if (/^\s*[—–−-]{3,}\s*$/.test(line)) { if (out.length < 3) out.push([]); }
-    else out[out.length - 1].push(line.trim());
-  }
-  while (out.length < 3) out.push([]);
-  return out.slice(0, 3).map(a => a.filter(Boolean));
+function clean(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/^[\s•·▪▫◦🌐🟣🗂♟📱📞☎️📲]+/u, "")
+    .trim();
 }
-function allLinks(p) {
-  const map = new Map();
-  for (const x of [...(p.links || []), ...(p.cards || [])]) {
-    if (x && /^https?:\/\//i.test(String(x.url || ""))) {
-      const old = map.get(x.url) || {};
-      map.set(x.url, { url: x.url, title: String(x.title || old.title || "") });
-    }
-  }
-  for (const x of (p.markup || [])) {
-    const url = x?.url || x?.href || x?.payload?.url;
-    if (typeof url === "string" && /^https?:\/\//i.test(url)) {
-      map.set(url, { url, title: String(x.text || x.value || x.payload?.text || map.get(url)?.title || "") });
-    }
-  }
-  for (const raw of (String(p.text || "").match(/https?:\/\/[^\s<>"')\]]+/gi) || [])) {
-    const url = raw.replace(/[.,!?;:]+$/, "");
-    if (url && !map.has(url)) map.set(url, { url, title: "" });
-  }
-  return [...map.values()];
+
+function isSeparator(line) {
+  return /^\s*[—–−-]{3,}\s*$/.test(String(line || ""));
 }
-function sectionLinks(lines, links) {
-  const used = new Set(), result = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let matches = (line.match(/https?:\/\/[^\s<>"')\]]+/gi) || [])
-      .map(raw => raw.replace(/[.,!?;:]+$/, ""))
-      .map(url => links.find(x => x.url === url) || { url, title: "" });
-    if (!matches.length) {
-      const x = links.find(x => x.title && line.toLowerCase().includes(x.title.toLowerCase()) && !used.has(x.url));
-      if (x) matches = [x];
+
+/*
+ * MAX returns formatted hyperlinks in body.markup as:
+ * { type: "link", from: 0, length: 12, url: "https://..." }
+ * The visible label is a slice of body.text, not a property on the markup item.
+ * This parser keeps line offsets so a hidden URL is assigned to the correct section.
+ */
+function getLinesWithSections(text) {
+  const rawLines = String(text || "").split(/\r?\n/);
+  const lines = [];
+  let offset = 0;
+  let section = 0;
+
+  for (const raw of rawLines) {
+    const line = {
+      text: raw,
+      trimmed: raw.trim(),
+      start: offset,
+      end: offset + raw.length,
+      section,
+      separator: isSeparator(raw)
+    };
+    lines.push(line);
+    offset += raw.length + 1;
+    if (line.separator && section < 2) section++;
+  }
+  return lines;
+}
+
+function getMarkupLinks(publication, text, lines) {
+  const markup = Array.isArray(publication.markup) ? publication.markup : [];
+  const result = [];
+
+  for (const item of markup) {
+    if (!item || String(item.type || "").toLowerCase() !== "link") continue;
+    const url = item.url || item.href || item.payload?.url;
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) continue;
+
+    const from = Number(item.from);
+    const length = Number(item.length);
+    let title = "";
+    let lineIndex = -1;
+    let section = -1;
+
+    if (Number.isFinite(from) && Number.isFinite(length) && length > 0 && from >= 0) {
+      // JS string indexes are UTF-16 offsets, matching MAX's text markup offsets.
+      title = text.slice(from, from + length).trim();
+      lineIndex = lines.findIndex(line => from >= line.start && from <= line.end);
+      if (lineIndex >= 0) section = lines[lineIndex].section;
     }
-    for (const x of matches) {
-      if (!x.url || used.has(x.url)) continue;
-      used.add(x.url);
-      let title = clean(line.replace(x.url, ""));
-      if (!title || title === line) title = clean(x.title);
-      if (!title && i > 0) title = clean(lines[i - 1]);
-      result.push({ title: title || "Открыть ссылку", url: x.url });
-    }
+
+    result.push({ url, title: clean(title), from: Number.isFinite(from) ? from : Number.MAX_SAFE_INTEGER, length, lineIndex, section });
+  }
+
+  return result.sort((a, b) => a.from - b.from);
+}
+
+function getPlainTextLinks(text, lines) {
+  const result = [];
+  const urlRe = /https?:\/\/[^\s<>"')\]]+/gi;
+  let match;
+  while ((match = urlRe.exec(text)) !== null) {
+    const url = match[0].replace(/[.,!?;:]+$/, "");
+    if (!url) continue;
+    const from = match.index;
+    const lineIndex = lines.findIndex(line => from >= line.start && from <= line.end);
+    result.push({
+      url,
+      title: "",
+      from,
+      length: match[0].length,
+      lineIndex,
+      section: lineIndex >= 0 ? lines[lineIndex].section : -1
+    });
   }
   return result;
 }
+
+function allLinks(publication, text, lines) {
+  const markupLinks = getMarkupLinks(publication, text, lines);
+  const links = [...markupLinks];
+  const seen = new Set(markupLinks.map(x => `${x.from}:${x.url}`));
+
+  for (const item of [...(publication.links || []), ...(publication.cards || [])]) {
+    if (!item || !/^https?:\/\//i.test(String(item.url || ""))) continue;
+    const url = String(item.url);
+    if (links.some(x => x.url === url)) continue;
+    const plain = getPlainTextLinks(url, lines)[0];
+    const lineIndex = plain?.lineIndex ?? -1;
+    links.push({
+      url,
+      title: clean(item.title || ""),
+      from: Number.isFinite(Number(item.from)) ? Number(item.from) : Number.MAX_SAFE_INTEGER,
+      length: 0,
+      lineIndex,
+      section: lineIndex >= 0 ? lines[lineIndex].section : -1
+    });
+  }
+
+  for (const link of getPlainTextLinks(text, lines)) {
+    const key = `${link.from}:${link.url}`;
+    if (!seen.has(key) && !links.some(x => x.url === link.url && x.from === link.from)) links.push(link);
+  }
+
+  return links.sort((a, b) => a.from - b.from);
+}
+
+function linksBySection(sectionNumber, lines, links) {
+  const sectionLines = lines.filter(line => !line.separator && line.section === sectionNumber);
+  const selected = links.filter(link => {
+    if (link.section >= 0) return link.section === sectionNumber;
+    // Fallback for stored link cards that don't contain source offsets: match the visible label.
+    if (!link.title) return false;
+    return sectionLines.some(line => line.trimmed.toLocaleLowerCase("ru").includes(link.title.toLocaleLowerCase("ru")));
+  });
+
+  const used = new Set();
+  const result = [];
+  for (const link of selected) {
+    const uniqueKey = `${link.from}:${link.url}`;
+    if (used.has(uniqueKey)) continue;
+    used.add(uniqueKey);
+
+    let title = clean(link.title);
+    if (!title && link.lineIndex >= 0) {
+      const line = lines[link.lineIndex];
+      title = clean(line?.trimmed || "");
+    }
+    // Если URL был напечатан непосредственно в строке, убираем его из подписи.
+    title = clean(title.replace(link.url, ""));
+    if (!title) title = "Открыть ссылку";
+    result.push({ title, url: link.url });
+  }
+
+  return result;
+}
+
 function contactsFrom(lines) {
-  const result = [], phoneRe = /(\+?\d[\d\s().-]{7,}\d)/;
-  for (let i = 0; i < lines.length; i++) {
-    const line = clean(lines[i]), m = line.match(phoneRe);
-    if (!m) continue;
-    const phone = m[1].replace(/[^\d+]/g, "");
-    let name = clean(line.replace(m[1], ""));
-    if (!name && i + 1 < lines.length && !phoneRe.test(lines[i + 1]) && !/^https?:\/\//i.test(lines[i + 1])) name = clean(lines[++i]);
+  const contactLines = lines.filter(line => !line.separator && line.section === 2).map(line => line.trimmed).filter(Boolean);
+  const result = [];
+  const phoneRe = /(\+?\d[\d\s().-]{7,}\d)/;
+
+  for (let i = 0; i < contactLines.length; i++) {
+    const line = clean(contactLines[i]);
+    const match = line.match(phoneRe);
+    if (!match) continue;
+    const phone = match[1].replace(/[^\d+]/g, "");
+    let name = clean(line.replace(match[1], ""));
+    if (!name && i + 1 < contactLines.length && !phoneRe.test(contactLines[i + 1]) && !/^https?:\/\//i.test(contactLines[i + 1])) {
+      name = clean(contactLines[++i]);
+    }
     result.push({ name: name || "Менеджер", phone });
   }
   return result;
 }
+
 function imageUrl(attachments) {
   const found = [];
-  function walk(x, parentKey = "") {
-    if (!x || typeof x !== "object") return;
-    if (Array.isArray(x)) return x.forEach(y => walk(y, parentKey));
-    const type = String(x.type || "").toLowerCase();
+  const visited = new Set();
+  function walk(value, parentKey = "") {
+    if (!value || typeof value !== "object" || visited.has(value)) return;
+    visited.add(value);
+    if (Array.isArray(value)) return value.forEach(item => walk(item, parentKey));
+    const type = String(value.type || "").toLowerCase();
     const imageLike = /image|photo|picture/.test(type) || /image|photo|preview|thumbnail/i.test(parentKey);
-    for (const [key, val] of Object.entries(x)) {
-      if (typeof val === "string" && /^https?:\/\//i.test(val) && (imageLike || /url|src/i.test(key))) found.push({ url: val, priority: imageLike ? 2 : 1 });
-      else if (val && typeof val === "object") walk(val, key);
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child === "string" && /^https?:\/\//i.test(child) && (imageLike || /url|src/i.test(key))) {
+        found.push({ url: child, priority: imageLike ? 2 : 1 });
+      } else if (child && typeof child === "object") walk(child, key);
     }
   }
   walk(attachments);
   found.sort((a, b) => b.priority - a.priority);
   return found[0]?.url || "";
 }
-function parse(p) {
-  const chatId = String(p.chatId || ""), meta = GROUPS[chatId];
+
+function parse(publication) {
+  const chatId = String(publication.chatId || "");
+  const meta = GROUPS[chatId];
   if (!meta) return null;
-  const parts = splitSections(p.text || "");
-  const name = clean(parts[0][0] || "")
+
+  const text = String(publication.text || "");
+  const lines = getLinesWithSections(text);
+  const firstContentLine = lines.find(line => !line.separator && line.section === 0 && line.trimmed);
+  const name = clean(firstContentLine?.trimmed || "")
     .replace(/\s*[–—-]\s*название застройщика\s*$/i, "")
-    .replace(/^название застройщика\s*[:—-]?\s*/i, "").trim();
+    .replace(/^название застройщика\s*[:—-]?\s*/i, "")
+    .trim();
   if (!name) return null;
-  const links = allLinks(p);
+
+  const links = allLinks(publication, text, lines);
   return {
-    id: String(p.messageId || ""), name, city: meta.city, category: meta.category, chatId,
-    groups: sectionLinks(parts[0].slice(1), links),
-    resources: sectionLinks(parts[1], links),
-    contacts: contactsFrom(parts[2]),
-    image: imageUrl(p.attachments || []),
-    updatedAt: Number(p.updatedAt || 0)
+    id: String(publication.messageId || ""),
+    name,
+    city: meta.city,
+    category: meta.category,
+    chatId,
+    groups: linksBySection(0, lines, links).filter(link => {
+      // В первой секции первая строка — название застройщика, не ссылка.
+      return Boolean(link.url);
+    }).filter(link => {
+      const linkObj = links.find(x => x.url === link.url && x.section === 0);
+      return linkObj && (linkObj.lineIndex !== lines.indexOf(firstContentLine));
+    }),
+    resources: linksBySection(1, lines, links),
+    contacts: contactsFrom(lines),
+    image: imageUrl(publication.attachments || []),
+    updatedAt: Number(publication.updatedAt || 0)
   };
 }
 
@@ -127,29 +250,55 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Cache-Control", "no-store");
+
   if (req.method === "OPTIONS") { res.statusCode = 204; return res.end(); }
-  if (req.method !== "GET") { res.statusCode = 405; res.setHeader("Content-Type", "application/json; charset=utf-8"); return res.end(JSON.stringify({ ok: false, error: "Method not allowed" })); }
+  if (req.method !== "GET") {
+    res.statusCode = 405;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+  }
+
   try {
-    const ids = await redis("SMEMBERS", INDEX) || [], list = [];
+    const ids = await redis("SMEMBERS", INDEX) || [];
+    const list = [];
     for (const id of ids) {
       const raw = await redis("GET", `${PREFIX}${id}`);
       if (!raw) continue;
-      try { const p = typeof raw === "string" ? JSON.parse(raw) : raw; const d = parse(p); if (d) list.push(d); }
-      catch (e) { console.error("Invalid MAX publication:", id); }
+      try {
+        const publication = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const developer = parse(publication);
+        if (developer) list.push(developer);
+      } catch (error) {
+        console.error("Invalid MAX publication:", id, error?.message);
+      }
     }
+
     list.sort((a, b) => b.updatedAt - a.updatedAt);
     const unique = new Map();
-    for (const d of list) {
-      const key = `${d.chatId}:${d.name.toLocaleLowerCase("ru").replace(/\s+/g, " ").trim()}`;
-      if (!unique.has(key)) unique.set(key, d);
+    for (const developer of list) {
+      const key = `${developer.chatId}:${developer.name.toLocaleLowerCase("ru").replace(/\s+/g, " ").trim()}`;
+      if (!unique.has(key)) unique.set(key, developer);
     }
     const developers = [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    res.statusCode = 200; res.setHeader("Content-Type", "application/json; charset=utf-8");
-    return res.end(JSON.stringify({ ok: true, count: developers.length,
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.end(JSON.stringify({
+      ok: true,
+      count: developers.length,
       cities: ["Краснодар", "Ростов", "Крым", "Новороссия"],
-      categoriesByCity: { "Краснодар": ["МКД", "ИЖС", "Побережье"], "Ростов": ["МКД", "ИЖС"], "Крым": ["МКД"], "Новороссия": ["МКД"] }, developers }));
-  } catch (e) {
-    console.error("Developers API error:", e); res.statusCode = 500; res.setHeader("Content-Type", "application/json; charset=utf-8");
+      categoriesByCity: {
+        "Краснодар": ["МКД", "ИЖС", "Побережье"],
+        "Ростов": ["МКД", "ИЖС"],
+        "Крым": ["МКД"],
+        "Новороссия": ["МКД"]
+      },
+      developers
+    }));
+  } catch (error) {
+    console.error("Developers API error:", error);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     return res.end(JSON.stringify({ ok: false, error: "Failed to load developers" }));
   }
 };
