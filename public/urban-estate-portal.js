@@ -5849,7 +5849,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function devLinkMarkup(items) {
         const links = devList(items).map(devLinkItem).filter(x => x.url && devSafeUrl(x.url));
         if (!links.length) return "";
-        return `<div class="ue-dev-links">${links.map(link => `<a class="ue-dev-link" href="${devEscape(devSafeUrl(link.url))}" target="_blank" rel="noopener noreferrer"><span class="ue-dev-link-icon">${devLinkIcon(link.title)}</span><span class="ue-dev-link-label">${devEscape(link.title)}</span><span class="ue-dev-link-arrow">↗</span></a>`).join("")}</div>`;
+        return `<div class="ue-dev-links">${links.map(link => `<a class="ue-dev-link" href="${devEscape(devSafeUrl(link.url))}" target="_blank" rel="noopener noreferrer">↗ ${devEscape(link.title)}</a>`).join("")}</div>`;
     }
 
     function devSection(title, content) {
@@ -5865,8 +5865,6 @@ document.addEventListener("DOMContentLoaded", function () {
             city: devText(devValue(item, ["city", "region", "location"])) || "Город не указан",
             category: devText(devValue(item, ["category", "type", "segment", "buildingType"])) || "Категория не указана",
             photo: devText(devValue(item, ["photo", "image", "avatar", "logo", "photoUrl", "imageUrl"])),
-            description: devText(devValue(item, ["description", "about", "summary", "shortDescription", "bio"])),
-            badges: devValue(item, ["badges", "icons", "emoji", "marks", "tags", "labels"]) || [],
             groups: devValue(item, ["groups", "links", "websites", "groupLinks"]) || [],
             resources: devValue(item, ["resources", "materials", "files", "resourceLinks"]) || [],
             contacts: devValue(item, ["contacts", "managers", "manager", "contact"]) || []
@@ -5893,25 +5891,6 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!parts.length) parts.push(devEscape(JSON.stringify(entry)));
             return `<div class="ue-dev-contact">${parts.join(" · ")}</div>`;
         }).join("");
-    }
-
-    function devBadgeMarkup(value) {
-        const badges = devList(value).map(entry => {
-            if (typeof entry === "string") return { label: entry, icon: "" };
-            return { label: devText(entry.label || entry.title || entry.name || entry.text || ""), icon: devText(entry.icon || entry.emoji || entry.symbol || "") };
-        }).filter(x => x.label || x.icon).slice(0, 5);
-        return badges.map(x => `<span class="ue-dev-tag">${x.icon ? `${devEscape(x.icon)} ` : ""}${devEscape(x.label)}</span>`).join("");
-    }
-
-    function devLinkIcon(title) {
-        const value = devText(title).toLocaleLowerCase("ru-RU");
-        if (/сайт|website|официаль/.test(value)) return "🌐";
-        if (/новост|канал|news/.test(value)) return "📣";
-        if (/групп|партнер|партнёр|сообществ/.test(value)) return "👥";
-        if (/расчет|расчёт|калькулятор|ипотек/.test(value)) return "🧮";
-        if (/шахмат|планиров|планировк/.test(value)) return "📐";
-        if (/материал|презентац|файл|документ/.test(value)) return "📁";
-        return "🔗";
     }
 
     function renderDevelopersDirectory() {
@@ -5941,12 +5920,11 @@ document.addEventListener("DOMContentLoaded", function () {
             const groups = devLinkMarkup(item.groups);
             const resources = devLinkMarkup(item.resources);
             const contacts = devContactsMarkup(item.contacts);
-            const extraBadges = devBadgeMarkup(item.badges);
-            const description = item.description ? `<div class="ue-dev-description">${devEscape(item.description)}</div>` : "";
             return `<article class="ue-dev-card">
-                <div class="ue-dev-card-brand">${photo}<div class="ue-dev-brand-copy"><div class="ue-dev-name">${devEscape(item.name)}</div><div class="ue-dev-meta"><span class="ue-dev-tag">${devEscape(item.city)}</span><span class="ue-dev-tag">${devEscape(item.category)}</span>${extraBadges}</div>${description}</div></div>
-                <div class="ue-dev-card-links">${devSection("Сайт и группы", groups)}${devSection("Материалы и ресурсы", resources)}</div>
-                <div class="ue-dev-card-contacts">${devSection("Контакты менеджеров", contacts)}</div>
+                <div class="ue-dev-card-head">${photo}<div><div class="ue-dev-name">${devEscape(item.name)}</div><div class="ue-dev-meta"><span class="ue-dev-tag">${devEscape(item.city)}</span><span class="ue-dev-tag">${devEscape(item.category)}</span></div></div></div>
+                ${devSection("Сайт и группы", groups)}
+                ${devSection("Материалы и ресурсы", resources)}
+                ${devSection("Контакты менеджеров", contacts)}
             </article>`;
         }).join("");
     }
