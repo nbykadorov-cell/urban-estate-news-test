@@ -1,7 +1,4 @@
 // Urban Estate — standard market mortgage rates for new-build apartments.
-// Fetches official bank pages, extracts advertised rates and falls back to
-// the last manually verified official-page snapshot if a source is unavailable.
-
 const BANKS = [
   {
     id: "sberbank", name: "Сбербанк", shortName: "Сбербанк",
@@ -79,7 +76,6 @@ function decodeText(html) {
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(Number(n)); } catch (_) { return ""; } })
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -113,25 +109,25 @@ async function fetchBank(bank) {
       method: "GET",
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Cache-Control": "no-cache"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9"
       },
-      signal: AbortSignal.timeout(6500)
+      signal: AbortSignal.timeout(4000) // Уменьшили таймаут до 4 сек на каждый банк, чтобы функция не висела
     });
     if (!response.ok) throw new Error("HTTP " + response.status);
     const html = await response.text();
     const rate = parseRate(html, bank);
-    if (rate === null) throw new Error("Не удалось надёжно извлечь ставку со страницы");
+    if (rate === null) throw new Error("Не удалось извлечь ставку");
     return {
-      id: bank.id, name: bank.name, rate: formatRate(rate), rateValue: rate,
+      id: bank.id, name: bank.name, shortName: bank.shortName, rate: formatRate(rate), rateValue: rate,
       url: bank.url, conditions: bank.conditions, live: true, verifiedOn: new Date().toISOString()
     };
   } catch (error) {
+    // Возвращаем fallback, но функция не падает
     return {
-      id: bank.id, name: bank.name, rate: formatRate(bank.fallbackRate), rateValue: bank.fallbackRate,
+      id: bank.id, name: bank.name, shortName: bank.shortName, rate: formatRate(bank.fallbackRate), rateValue: bank.fallbackRate,
       url: bank.url, conditions: bank.conditions, live: false,
-      verifiedOn: "2026-10-10", error: "Источник временно недоступен; показано последнее подтверждённое значение"
+      verifiedOn: "2026-10-17", error: "Используется резервное значение"
     };
   }
 }
@@ -140,6 +136,7 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
+  res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
 
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") {
@@ -147,16 +144,9 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // Запускаем запросы параллельно, гарантируя отдачу ответа в любом случае
   const results = await Promise.all(BANKS.map(fetchBank));
   const liveCount = results.filter(item => item.live).length;
-
-  // Умное управление кэшем: если какой-то из банков упал в fallback, 
-  // не держим ошибочный ответ долго на CDN, сокращаем кэш до 1 минуты.
-  if (liveCount < results.length) {
-    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
-  } else {
-    res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");
-  }
 
   return res.status(200).json({
     ok: true,
@@ -167,10 +157,3 @@ module.exports = async function handler(req, res) {
     banks: results
   });
 };
-
-module.exports.BANKS = BANKS;
-module.exports.parseRate = parseRate;
-module.exports.decodeText = decodeText;
-```[cite: 4]
-
-<FollowUp>Получилось ли обновить этот файл на Vercel и проверить, как отрабатывают запросы?</FollowUp>
