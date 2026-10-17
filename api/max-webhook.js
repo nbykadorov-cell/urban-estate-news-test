@@ -97,12 +97,18 @@ module.exports = async (req, res) => {
     if (!message) return json(res, 200, { ok: true, skipped: "message body not found", eventType });
 
     const text = getText(message), attachments = getAttachments(message), links = extractLinks(text, message);
+    
+    // Формируем прямую ссылку на сообщение в MAX (подставьте ваш домен/формат, если отличается)
+    const sourceUrl = `https://max.ru/chat/${chatId}/message/${messageId}`;
+
     const publication = {
-      messageId: String(messageId), chatId, text,
+      messageId: String(messageId), chatId, text, sourceUrl, // <-- добавили sourceUrl
       markup: message?.body?.markup || message?.markup || [],
       attachments, links, cards: makeCards(text, String(messageId), links),
       updatedAt: Date.now(), eventType
     };
+
+    
     await redis("SET", key, JSON.stringify(publication));
     await redis("SADD", MESSAGE_INDEX, String(messageId));
     return json(res, 200, { ok: true, saved: true, messageId: String(messageId), chatId, links: links.length, attachments: attachments.length });
