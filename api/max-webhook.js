@@ -101,6 +101,7 @@ module.exports = async (req, res) => {
       messageId: String(messageId), chatId, text,
       markup: message?.body?.markup || message?.markup || [],
       attachments, links, cards: makeCards(text, String(messageId), links),
+      sourceMessageUrl: message?.url || null,
       updatedAt: Date.now(), eventType
     };
     await redis("SET", key, JSON.stringify(publication));
