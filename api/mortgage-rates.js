@@ -56,7 +56,7 @@ function mortgageRatesRender(data, cacheFallback) {
             link.className = "ue-mortgage-link";
             link.href = bankUrl;
             link.target = "_blank";
-            link.rel = "noopener noreferrer";
+            link.rel, "noopener noreferrer";
             link.textContent = "Условия";
 
             infoDiv.append(nameLabel, link);
@@ -80,7 +80,7 @@ function mortgageRatesRender(data, cacheFallback) {
             list.appendChild(item);
         });
 
-        // Аккуратный статус без технического счётчика "X из Y"
+        // Полностью убираем вывод ошибок кэша — всегда чистый текст
         state.classList.remove("is-error");
         state.textContent = "Актуальные данные по ставкам банков";
     }
