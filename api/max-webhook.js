@@ -90,19 +90,15 @@ module.exports = async (req, res) => {
       return json(res, 200, { ok: true, removed: String(messageId) });
     }
 
+    // Важно: MAX_TARGET_CHAT_ID больше не ограничивает обработку одной группой.
     if (!chatId || !Object.prototype.hasOwnProperty.call(DEVELOPER_GROUPS, chatId)) {
       return json(res, 200, { ok: true, skipped: "chat is not in developer groups" });
     }
     if (!message) return json(res, 200, { ok: true, skipped: "message body not found", eventType });
 
     const text = getText(message), attachments = getAttachments(message), links = extractLinks(text, message);
-    
-    // Формируем прямую ссылку на исходное сообщение в MAX
-    const cleanChatId = chatId.replace(/^-/, "");
-    const sourceUrl = `https://max.ru/chat/${cleanChatId}/message/${messageId}`;
-
     const publication = {
-      messageId: String(messageId), chatId, text, sourceUrl,
+      messageId: String(messageId), chatId, text,
       markup: message?.body?.markup || message?.markup || [],
       attachments, links, cards: makeCards(text, String(messageId), links),
       updatedAt: Date.now(), eventType
