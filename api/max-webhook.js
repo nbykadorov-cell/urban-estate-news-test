@@ -68,8 +68,8 @@ function parseDeveloperPost(text, messageId) {
     const line = lines[i];
     if (!line) continue;
 
-    // Проверка на разделители разделов (линии из дефисов)
-    if (/^[—\-]{3,}$/.test(line)) {
+    // Проверка на разделители разделов (линии из дефисов или подчеркиваний)
+    if (/^[—\-_]{3,}$/.test(line)) {
       if (currentSection === "header") currentSection = "groups";
       else if (currentSection === "groups") currentSection = "resources";
       else if (currentSection === "resources") currentSection = "contacts";
@@ -77,7 +77,7 @@ function parseDeveloperPost(text, messageId) {
       continue;
     }
 
-    // Текстовые маркеры разделов
+    // Текстовые маркеры разделов (если они прописаны явно)
     const lower = line.toLowerCase();
     if (lower.includes("сайт и групп") || lower.includes("ссылки на сайты")) {
       currentSection = "groups";
@@ -96,7 +96,7 @@ function parseDeveloperPost(text, messageId) {
       continue;
     }
 
-    // Распределение по секциям
+    // Распределение по секциям с учетом особенностей разметки
     if (currentSection === "header") {
       if (!name) {
         name = line;
@@ -106,11 +106,13 @@ function parseDeveloperPost(text, messageId) {
     } else if (currentSection === "groups") {
       groups.push({ title: line, url: extractUrlFromLine(line) });
     } else if (currentSection === "resources") {
+      // Ресурсы могут быть ссылкой или текстом (логин/пароль)
       resources.push({ title: line, url: extractUrlFromLine(line) });
     } else if (currentSection === "contacts") {
+      // Собираем все строки контактов (телефоны, имена, подписи городов)
       contacts.push(line);
     } else if (currentSection === "comment") {
-      comment += (comment ? "\n" : "") + line;
+      comment += (comment ? "\n" : " ") + line;
     }
   }
 
