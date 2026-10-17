@@ -1,5 +1,5 @@
 // Urban Estate — standard market mortgage rates for new-build apartments.
-// Fetches the official bank pages, extracts advertised rates and falls back to
+// Fetches official bank pages, extracts advertised rates and falls back to
 // the last manually verified official-page snapshot if a source is unavailable.
 
 const BANKS = [
@@ -88,7 +88,6 @@ function parseRate(html, bank) {
   const text = decodeText(html);
   const found = [];
   const patterns = bank.patterns.concat([
-    // Some bank pages render the value before its label, e.g. "От 18,0% Ставка".
     /от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%\s*(?:годовых\s*)?(?:процентная\s+)?ставка/gi
   ]);
   for (const pattern of patterns) {
@@ -96,13 +95,11 @@ function parseRate(html, bank) {
     let match;
     while ((match = pattern.exec(text)) !== null) {
       const value = Number(String(match[1]).replace(",", "."));
-      // Exclude subsidized programs (family, IT, etc.) and implausible values.
       if (Number.isFinite(value) && value >= 10 && value <= 35) found.push(value);
       if (pattern.lastIndex === match.index) pattern.lastIndex++;
     }
   }
   if (!found.length) return null;
-  // The widget compares the lowest advertised market rate found on the source page.
   return Math.min(...found);
 }
 
@@ -115,9 +112,10 @@ async function fetchBank(bank) {
     const response = await fetch(bank.url, {
       method: "GET",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; UrbanEstateRates/1.0; +https://urban-estate-news-test.vercel.app)",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache"
       },
       signal: AbortSignal.timeout(6500)
     });
@@ -142,7 +140,6 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
-  res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");
 
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") {
@@ -152,6 +149,15 @@ module.exports = async function handler(req, res) {
 
   const results = await Promise.all(BANKS.map(fetchBank));
   const liveCount = results.filter(item => item.live).length;
+
+  // Умное управление кэшем: если какой-то из банков упал в fallback, 
+  // не держим ошибочный ответ долго на CDN, сокращаем кэш до 1 минуты.
+  if (liveCount < results.length) {
+    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
+  } else {
+    res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");
+  }
+
   return res.status(200).json({
     ok: true,
     product: "standard-new-build-mortgage",
@@ -165,3 +171,6 @@ module.exports = async function handler(req, res) {
 module.exports.BANKS = BANKS;
 module.exports.parseRate = parseRate;
 module.exports.decodeText = decodeText;
+```[cite: 4]
+
+<FollowUp>Получилось ли обновить этот файл на Vercel и проверить, как отрабатывают запросы?</FollowUp>
