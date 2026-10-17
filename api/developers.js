@@ -241,6 +241,7 @@ function parse(publication) {
     resources: linksBySection(1, lines, links),
     contacts: contactsFrom(lines),
     image: imageUrl(publication.attachments || []),
+    sourceMessageUrl: publication.sourceMessageUrl || "",
     updatedAt: Number(publication.updatedAt || 0)
   };
 }
