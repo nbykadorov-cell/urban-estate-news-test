@@ -1,159 +1,86 @@
-// Urban Estate — standard market mortgage rates for new-build apartments.
-const BANKS = [
-  {
-    id: "sberbank", name: "Сбербанк", shortName: "Сбербанк",
-    url: "https://domclick.ru/ipoteka",
-    fallbackRate: 15.2,
-    conditions: "Минимальная ставка программы «Новостройка»; условия зависят от объекта и параметров кредита.",
-    patterns: [/ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /процентная ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "vtb", name: "ВТБ", shortName: "ВТБ",
-    url: "https://www.vtb.ru/personal/ipoteka/novostrojki/",
-    fallbackRate: 18.0,
-    conditions: "На странице программы для новостроек; персональные скидки могут изменить ставку.",
-    patterns: [/ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /процентная ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "alfa", name: "Альфа-Банк", shortName: "Альфа-Банк",
-    url: "https://alfabank.ru/get-money/mortgage/novostrojki/",
-    fallbackRate: 17.59,
-    conditions: "От 17,59% при сумме кредита от 10 млн ₽ и первоначальном взносе от 50%.",
-    patterns: [/от\s*(\d{1,2}[,.]\d{1,3})\s*%\s*при сумме кредита/gi, /ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "sovcom", name: "Совкомбанк", shortName: "Совкомбанк",
-    url: "https://sovcombank.ru/apply/ipoteka/ipoteka-s-nizkim-procentom/",
-    fallbackRate: 18.49,
-    conditions: "Рыночная ипотека на новостройку; льготные программы в сравнение не включены.",
-    patterns: [/новостройка[\s\S]{0,220}?ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "domrf", name: "Банк ДОМ.РФ", shortName: "ДОМ.РФ",
-    url: "https://domrfbank.ru/press/private-clients/ipoteka-ot-16-6-bank-dom-rf-vvel-skidku-po-kreditam-ot-8-mln-rubley/",
-    fallbackRate: 16.6,
-    conditions: "От 16,6% для зарплатных клиентов при взносе от 50% и крупной сумме кредита; для остальных — от 16,8%.",
-    patterns: [/минимальная ставка[\s\S]{0,180}?от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /ставка[\s\S]{0,90}?от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "tbank", name: "Т-Банк", shortName: "Т-Банк",
-    url: "https://www.tbank.ru/mortgage/",
-    fallbackRate: 16.9,
-    conditions: "Стандартная программа на новостройки; семейные и другие льготные программы исключены.",
-    patterns: [/ипотека на новостройки[\s\S]{0,220}?ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "uralsib", name: "Уралсиб", shortName: "Уралсиб",
-    url: "https://uralsib.ru/blog/bank-uralsib-snizil-stavki-po-ipoteke_25",
-    fallbackRate: 17.89,
-    conditions: "Рыночная ипотека на строящееся или готовое жильё; ставка зависит от условий банка.",
-    patterns: [/по ставке\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "metallinvest", name: "Металлинвестбанк", shortName: "Металлинвестбанк",
-    url: "https://www.metallinvestbank.ru/private/mortgage/flats/",
-    fallbackRate: 17.4,
-    conditions: "Ипотека на квартиру или апартаменты; размер ставки зависит от условий кредитования.",
-    patterns: [/процентная ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  },
-  {
-    id: "kuban", name: "Кубань Кредит", shortName: "Кубань Кредит",
-    url: "https://kk.ru/mortgage/novostroyka-ot-partnyerov/",
-    fallbackRate: 15.0,
-    conditions: "От 15% при покупке объекта у застройщика-партнёра банка; для других объектов ставка выше.",
-    patterns: [/при приобретении объектов застройщиков-партнеров[\s\S]{0,300}?от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi, /процентная ставка\s*от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%/gi]
-  }
-];
+function mortgageRatesRender(data, cacheFallback) {
+        const list = $("#ue-mortgage-list");
+        const state = $("#ue-mortgage-state");
+        if (!list || !state || !data || !Array.isArray(data.banks)) return;
+        list.textContent = "";
+        const banks = data.banks.slice().sort((a, b) => Number(a.rateValue) - Number(b.rateValue));
+        
+        // Словарь индивидуальных ссылок на ИЗОБРАЖЕНИЯ ЛОГОТИПОВ для каждого банка
+        const customLogosMap = {
+            "sberbank": "https://site.ru/logos/sber.png",
+            "vtb": "https://site.ru/logos/vtb.png",
+            "alfa": "https://site.ru/logos/alfa.png",
+            "sovcom": "https://site.ru/logos/sovcom.png",
+            "domrf": "https://site.ru/logos/domrf.png",
+            "tbank": "https://site.ru/logos/tbank.png"
+        };
 
-function decodeText(html) {
-  return String(html || "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<!--([\s\S]*?)-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&comma;/gi, ",")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+        banks.forEach(bank => {
+            const item = document.createElement("article");
+            item.className = "ue-mortgage-bank";
 
-function parseRate(html, bank) {
-  const text = decodeText(html);
-  const found = [];
-  const patterns = bank.patterns.concat([
-    /от\s*(\d{1,2}(?:[,.]\d{1,3})?)\s*%\s*(?:годовых\s*)?(?:процентная\s+)?ставка/gi
-  ]);
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const value = Number(String(match[1]).replace(",", "."));
-      if (Number.isFinite(value) && value >= 10 && value <= 35) found.push(value);
-      if (pattern.lastIndex === match.index) pattern.lastIndex++;
+            const bankUrl = bank.url || "#";
+            const bankName = bank.shortName || bank.name || "Банк";
+            const logoUrl = customLogosMap[bank.id] || "";
+
+            // --- 1. ЛОГОТИП БАНКА (ссылка + картинка из словаря или заглушка) ---
+            const logoLink = document.createElement("a");
+            logoLink.className = "ue-mortgage-logo-link";
+            logoLink.href = bankUrl;
+            logoLink.target = "_blank";
+            logoLink.rel = "noopener noreferrer";
+
+            if (logoUrl) {
+                const logoImg = document.createElement("img");
+                logoImg.className = "ue-mortgage-logo-img";
+                logoImg.src = logoUrl;
+                logoImg.alt = bankName;
+                logoImg.loading = "lazy";
+                logoLink.appendChild(logoImg);
+            } else {
+                const logoFallback = document.createElement("span");
+                logoFallback.className = "ue-mortgage-logo-fallback";
+                logoFallback.textContent = String(bankName).slice(0, 2).toUpperCase();
+                logoLink.appendChild(logoFallback);
+            }
+
+            // --- 2. ПЕРВЫЙ DIV (ue-mortgage-bank-label и ue-mortgage-link) ---
+            const infoDiv = document.createElement("div");
+            infoDiv.className = "ue-mortgage-info-block";
+
+            const nameLabel = document.createElement("span");
+            nameLabel.className = "ue-mortgage-bank-label";
+            nameLabel.textContent = bankName;
+
+            const link = document.createElement("a");
+            link.className = "ue-mortgage-link";
+            link.href = bankUrl;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = "Условия";
+
+            infoDiv.append(nameLabel, link);
+
+            // --- 3. ВТОРОЙ DIV (ue-mortgage-rate и ue-mortgage-live) ---
+            const metaDiv = document.createElement("div");
+            metaDiv.className = "ue-mortgage-meta-block";
+
+            const rate = document.createElement("div");
+            rate.className = "ue-mortgage-rate";
+            rate.textContent = "от " + String(bank.rate || "—").replace(".", ",") + "%";
+
+            const status = document.createElement("span");
+            status.className = "ue-mortgage-live" + (bank.live ? "" : " is-stale");
+            status.textContent = bank.live ? "Актуально" : "Архив";
+
+            metaDiv.append(rate, status);
+
+            // Собираем карточку в требуемом порядке
+            item.append(logoLink, infoDiv, metaDiv);
+            list.appendChild(item);
+        });
+
+        // Аккуратный статус без технического счётчика "X из Y"
+        state.classList.remove("is-error");
+        state.textContent = "Актуальные данные по ставкам банков";
     }
-  }
-  if (!found.length) return null;
-  return Math.min(...found);
-}
-
-function formatRate(rate) {
-  return Number(rate).toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 3 }).replace(/\u00a0/g, " ");
-}
-
-async function fetchBank(bank) {
-  try {
-    const response = await fetch(bank.url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ru-RU,ru;q=0.9"
-      },
-      signal: AbortSignal.timeout(4000) // Уменьшили таймаут до 4 сек на каждый банк, чтобы функция не висела
-    });
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const html = await response.text();
-    const rate = parseRate(html, bank);
-    if (rate === null) throw new Error("Не удалось извлечь ставку");
-    return {
-      id: bank.id, name: bank.name, shortName: bank.shortName, rate: formatRate(rate), rateValue: rate,
-      url: bank.url, conditions: bank.conditions, live: true, verifiedOn: new Date().toISOString()
-    };
-  } catch (error) {
-    // Возвращаем fallback, но функция не падает
-    return {
-      id: bank.id, name: bank.name, shortName: bank.shortName, rate: formatRate(bank.fallbackRate), rateValue: bank.fallbackRate,
-      url: bank.url, conditions: bank.conditions, live: false,
-      verifiedOn: "2026-10-17", error: "Используется резервное значение"
-    };
-  }
-}
-
-module.exports = async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
-  res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
-
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET, OPTIONS");
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  // Запускаем запросы параллельно, гарантируя отдачу ответа в любом случае
-  const results = await Promise.all(BANKS.map(fetchBank));
-  const liveCount = results.filter(item => item.live).length;
-
-  return res.status(200).json({
-    ok: true,
-    product: "standard-new-build-mortgage",
-    checkedAt: new Date().toISOString(),
-    liveCount,
-    totalCount: results.length,
-    banks: results
-  });
-};
