@@ -2,6 +2,7 @@ const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const MESSAGE_PREFIX = "urban-estate:max:message:";
 const MESSAGE_INDEX = "urban-estate:max:message-ids";
+
 const DEVELOPER_GROUPS = {
   "-72201455059710": { city: "Краснодар", category: "МКД" },
   "-72201528984318": { city: "Краснодар", category: "ИЖС" },
@@ -31,6 +32,7 @@ async function redis(command, ...args) {
   if (!response.ok || data.error) throw new Error(data.error || `Redis HTTP ${response.status}`);
   return data.result;
 }
+
 function getMessage(u) {
   return u.message || u.edited_message || u.data?.message || u.message_created?.message || u.message_edited?.message || u.message_removed?.message || null;
 }
@@ -43,28 +45,84 @@ function getChatId(u, m) {
 }
 function getText(m) { const b = m?.body || {}; return String(b.text ?? m?.text ?? m?.caption ?? "").trim(); }
 function getAttachments(m) { const b = m?.body || {}; const a = b.attachments ?? m?.attachments ?? []; return Array.isArray(a) ? a : []; }
-function extractLinks(text, message) {
-  const found = new Map();
-  for (const raw of (String(text || "").match(/https?:\/\/[^\s<>"')\]]+/gi) || [])) {
-    const url = raw.replace(/[.,!?;:]+$/, ""); if (url) found.set(url, { url, title: "" });
-  }
-  const markup = Array.isArray(message?.body?.markup) ? message.body.markup : [];
-  for (const item of markup) {
-    const url = item.url || item.href || item.payload?.url;
-    if (typeof url === "string" && /^https?:\/\//i.test(url)) {
-      found.set(url, { url, title: String(item.text || item.value || item.payload?.text || "") });
+
+function extractUrlFromLine(line) {
+  const match = line.match(/https?:\/\/[^\s<>"')\]]+/i);
+  return match ? match[0].replace(/[.,!?;:]+$/, "") : "";
+}
+
+// Интеллектуальный парсер по разделам застройщика
+function parseDeveloperPost(text, messageId) {
+  const lines = String(text || "").split(/\r?\n/).map(x => x.trim());
+  
+  let name = "";
+  let description = "";
+  let groups = [];
+  let resources = [];
+  let contacts = [];
+  let comment = "";
+
+  let currentSection = "header"; // header, groups, resources, contacts, comment
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // Проверка на разделители разделов (линии из дефисов)
+    if (/^[—\-]{3,}$/.test(line)) {
+      if (currentSection === "header") currentSection = "groups";
+      else if (currentSection === "groups") currentSection = "resources";
+      else if (currentSection === "resources") currentSection = "contacts";
+      else if (currentSection === "contacts") currentSection = "comment";
+      continue;
+    }
+
+    // Текстовые маркеры разделов
+    const lower = line.toLowerCase();
+    if (lower.includes("сайт и групп") || lower.includes("ссылки на сайты")) {
+      currentSection = "groups";
+      continue;
+    }
+    if (lower.includes("материал") || lower.includes("ресурс")) {
+      currentSection = "resources";
+      continue;
+    }
+    if (lower.includes("контакт") || lower.includes("менеджер")) {
+      currentSection = "contacts";
+      continue;
+    }
+    if (lower.includes("комментарий")) {
+      currentSection = "comment";
+      continue;
+    }
+
+    // Распределение по секциям
+    if (currentSection === "header") {
+      if (!name) {
+        name = line;
+      } else {
+        description += (description ? "\n" : "") + line;
+      }
+    } else if (currentSection === "groups") {
+      groups.push({ title: line, url: extractUrlFromLine(line) });
+    } else if (currentSection === "resources") {
+      resources.push({ title: line, url: extractUrlFromLine(line) });
+    } else if (currentSection === "contacts") {
+      contacts.push(line);
+    } else if (currentSection === "comment") {
+      comment += (comment ? "\n" : "") + line;
     }
   }
-  return [...found.values()];
-}
-function makeCards(text, messageId, links) {
-  const lines = String(text || "").split(/\r?\n/).map(x => x.trim());
-  return links.map((link, i) => {
-    const lineIndex = lines.findIndex(line => line.includes(link.url));
-    const line = lineIndex >= 0 ? lines[lineIndex] : "";
-    const previous = lineIndex > 0 ? lines[lineIndex - 1] : "";
-    return { id: `${messageId}_${i}`, title: (line.replace(link.url, "").trim() || link.title || previous || "Открыть ссылку").slice(0, 180), url: link.url, sourceMessageId: messageId };
-  });
+
+  return {
+    id: String(messageId),
+    name: name || "Застройщик",
+    description,
+    groups,
+    resources,
+    contacts,
+    comment
+  };
 }
 
 module.exports = async (req, res) => {
@@ -83,29 +141,34 @@ module.exports = async (req, res) => {
     if (!messageId) return json(res, 200, { ok: true, skipped: "message id not found", eventType });
     const key = `${MESSAGE_PREFIX}${messageId}`;
 
-    // Удаление должно сработать и при неполном payload без chat_id.
     if (removed) {
       await redis("DEL", key);
       await redis("SREM", MESSAGE_INDEX, String(messageId));
       return json(res, 200, { ok: true, removed: String(messageId) });
     }
 
-    // Важно: MAX_TARGET_CHAT_ID больше не ограничивает обработку одной группой.
     if (!chatId || !Object.prototype.hasOwnProperty.call(DEVELOPER_GROUPS, chatId)) {
       return json(res, 200, { ok: true, skipped: "chat is not in developer groups" });
     }
     if (!message) return json(res, 200, { ok: true, skipped: "message body not found", eventType });
 
-    const text = getText(message), attachments = getAttachments(message), links = extractLinks(text, message);
+    const text = getText(message), attachments = getAttachments(message);
+    const parsedData = parseDeveloperPost(text, messageId);
+
     const publication = {
-      messageId: String(messageId), chatId, text,
+      messageId: String(messageId),
+      chatId,
+      text,
+      ...parsedData,
       markup: message?.body?.markup || message?.markup || [],
-      attachments, links, cards: makeCards(text, String(messageId), links),
-      updatedAt: Date.now(), eventType
+      attachments,
+      updatedAt: Date.now(),
+      eventType
     };
+
     await redis("SET", key, JSON.stringify(publication));
     await redis("SADD", MESSAGE_INDEX, String(messageId));
-    return json(res, 200, { ok: true, saved: true, messageId: String(messageId), chatId, links: links.length, attachments: attachments.length });
+    return json(res, 200, { ok: true, saved: true, messageId: String(messageId), chatId });
   } catch (error) {
     console.error("MAX webhook error:", error);
     return json(res, 500, { ok: false, error: "Webhook processing failed" });
