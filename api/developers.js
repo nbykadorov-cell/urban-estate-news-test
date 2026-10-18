@@ -150,9 +150,14 @@ function linksBySection(sectionNumber, lines, links) {
     return sectionLines.some(line => line.trimmed.toLocaleLowerCase("ru").includes(link.title.toLocaleLowerCase("ru")));
   });
 
+  const filteredSelected = selected.filter(link =>
+    !isEmailLike(link.title) &&
+    !isEmailLike(link.url)
+  );
+
   const used = new Set();
   const result = [];
-  for (const link of selected) {
+  for (const link of filteredSelected) {
     const uniqueKey = `${link.from}:${link.url}`;
     if (used.has(uniqueKey)) continue;
     used.add(uniqueKey);
@@ -240,6 +245,15 @@ function imageUrl(attachments) {
   return found[0]?.url || "";
 }
 
+function isEmailLike(value) {
+  const text = String(value || "").trim();
+
+  return (
+    /^mailto:/i.test(text) ||
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)
+  );
+}
+
 function parse(publication) {
   const chatId = String(publication.chatId || "");
   const meta = GROUPS[chatId];
@@ -291,6 +305,8 @@ function parse(publication) {
     }),
     resources: linksBySection(1, lines, links),
     contacts: contactsFrom(lines),
+    description: descriptionLine ? clean(descriptionLine.trimmed) : "",
+    comment,
     image: imageUrl(publication.attachments || []),
     updatedAt: Number(publication.updatedAt || 0)
   };
