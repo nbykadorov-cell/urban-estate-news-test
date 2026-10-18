@@ -172,21 +172,51 @@ function linksBySection(sectionNumber, lines, links) {
 }
 
 function contactsFrom(lines) {
-  const contactLines = lines.filter(line => !line.separator && line.section === 2).map(line => line.trimmed).filter(Boolean);
-  const result = [];
-  const phoneRe = /(\+?\d[\d\s().-]{7,}\d)/;
+  const contactLines = lines
+    .filter(line => !line.separator && line.section === 2)
+    .map(line => line.trimmed)
+    .filter(Boolean);
 
-  for (let i = 0; i < contactLines.length; i++) {
-    const line = clean(contactLines[i]);
-    const match = line.match(phoneRe);
-    if (!match) continue;
-    const phone = match[1].replace(/[^\d+]/g, "");
-    let name = clean(line.replace(match[1], ""));
-    if (!name && i + 1 < contactLines.length && !phoneRe.test(contactLines[i + 1]) && !/^https?:\/\//i.test(contactLines[i + 1])) {
-      name = clean(contactLines[++i]);
-    }
-    result.push({ name: name || "Менеджер", phone });
+  const result = [];
+  const phoneRe = /\+?\d[\d\s().-]{7,}\d/;
+
+  let pendingPhones = [];
+
+  function flush(name = "") {
+    if (!pendingPhones.length) return;
+
+    result.push({
+      name: clean(name) || "Менеджер",
+      phones: [...pendingPhones]
+    });
+
+    pendingPhones = [];
   }
+
+  for (const rawLine of contactLines) {
+    const line = clean(rawLine);
+    const match = line.match(phoneRe);
+
+    if (match) {
+      const phone = match[0].replace(/[^\d+]/g, "");
+      const remainder = clean(line.replace(match[0], ""));
+
+      pendingPhones.push(phone);
+
+      // Если имя написано в той же строке, сразу завершаем контакт.
+      if (remainder) flush(remainder);
+
+      continue;
+    }
+
+    // Строка без телефона после нескольких номеров — имя менеджера.
+    if (pendingPhones.length) {
+      flush(line);
+    }
+  }
+
+  flush();
+
   return result;
 }
 
