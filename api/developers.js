@@ -255,6 +255,27 @@ function parse(publication) {
   if (!name) return null;
 
   const links = allLinks(publication, text, lines);
+  const firstLineIndex = lines.indexOf(firstContentLine);
+  const linkedLineIndexes = new Set(
+    links
+      .filter(link => link.lineIndex >= 0)
+      .map(link => link.lineIndex)
+  );
+  
+  const descriptionLine = lines.find((line, index) =>
+    index > firstLineIndex &&
+    line.section === 0 &&
+    !line.separator &&
+    line.trimmed &&
+    !linkedLineIndexes.has(index) &&
+    !/^https?:\/\//i.test(line.trimmed)
+  );
+  
+  const comment = lines
+    .filter(line => line.section >= 3 && !line.separator)
+    .map(line => line.trimmed)
+    .filter(Boolean)
+    .join("\n");
   return {
     id: String(publication.messageId || ""),
     name,
