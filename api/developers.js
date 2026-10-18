@@ -58,7 +58,7 @@ function getLinesWithSections(text) {
     };
     lines.push(line);
     offset += raw.length + 1;
-    if (line.separator && section < 2) section++;
+    if (line.separator) section++;
   }
   return lines;
 }
