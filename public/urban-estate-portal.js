@@ -1,3 +1,4 @@
+<script>
 document.addEventListener("DOMContentLoaded", function () {
     const STORAGE_KEY = "urbanEstateWorkspaceHistory";
     const OLD_STORAGE_KEY = "favoriteMiniCards";
@@ -388,7 +389,7 @@ document.addEventListener("DOMContentLoaded", function () {
                             </div>
                         </div>
                         <div class="ue-developers-banner-right">
-                            <span class="ue-developers-banner-count">${count} компаний</span>
+                            <span class="ue-developers-banner-count">${count}</span>
                             <div class="ue-developers-banner-arrow">${icon("arrow")}</div>
                         </div>
                     </div>
@@ -936,6 +937,8 @@ document.addEventListener("DOMContentLoaded", function () {
             photo: devText(devValue(item, ["photo", "image", "avatar", "logo", "photoUrl", "imageUrl"])),
             groups: devValue(item, ["groups", "links", "websites", "groupLinks"]) || [],
             resources: devValue(item, ["resources", "materials", "files", "resourceLinks"]) || [],
+            description: devText(devValue(item, ["description", "subtitle", "about"])),
+            comment: devText(devValue(item, ["comment", "notes", "note"])),
             contacts: devValue(item, ["contacts", "managers", "manager", "contact"]) || []
         };
     }
@@ -951,14 +954,25 @@ document.addEventListener("DOMContentLoaded", function () {
                 return `<div class="ue-dev-contact">${href ? `<a href="${devEscape(href)}">${devEscape(phoneText)}</a>` : devEscape(entry)}</div>`;
             }
             const name = devText(entry.name || entry.fullName || entry.manager || "");
-            const phone = devText(entry.phone || entry.telephone || "");
+            const phones = devList(entry.phones || entry.phone || entry.telephone)
+                .map(phone => devText(phone))
+                .filter(Boolean);
             const email = devText(entry.email || "");
-            const parts = [];
-            if (phone) parts.push(`<a href="tel:${devEscape(phone.replace(/[^+\d]/g, ""))}"> ${devEscape(phone)}</a>`);
-            if (email) parts.push(`<a href="mailto:${devEscape(email)}"> ${devEscape(email)}</a>`);
-            if (name) parts.push(`<span>${devEscape(name)}</span>`);
-            if (!parts.length) parts.push(devEscape(JSON.stringify(entry)));
-            return `<div class="ue-dev-contact">${parts.join(" ")}</div>`;
+            
+            const phoneMarkup = phones.map(phone => {
+                const href = `tel:${phone.replace(/[^\d+]/g, "")}`;
+                return `<div><a href="${devEscape(href)}">${devEscape(phone)}</a></div>`;
+            }).join("");
+            
+            const emailMarkup = email
+                ? `<div><a href="mailto:${devEscape(email)}">${devEscape(email)}</a></div>`
+                : "";
+            
+            const nameMarkup = name
+                ? `<div>${devEscape(name)}</div>`
+                : "";
+            
+            return `<div class="ue-dev-contact">${phoneMarkup}${emailMarkup}${nameMarkup}</div>`;
         }).join("");
     }
 
@@ -992,11 +1006,22 @@ document.addEventListener("DOMContentLoaded", function () {
             const contacts = devContactsMarkup(item.contacts);
             return `
                 <article class="ue-dev-card">
-                    <div class="ue-dev-card-head">${photo}<div><div class="ue-dev-name">${devEscape(item.name)}</div><div class="ue-dev-meta"><span class="ue-dev-tag">${devEscape(item.city)}</span><span class="ue-dev-tag">${devEscape(item.category)}</span></div></div></div>
+                    <div class="ue-dev-card-head">
+                        ${photo}
+                        <div>
+                            <div class="ue-dev-name">${devEscape(item.name)}</div>
+                            ${item.description ? `<div class="ue-dev-description">${devEscape(item.description)}</div>` : ""}
+                            <div class="ue-dev-meta">
+                                <span class="ue-dev-tag">${devEscape(item.city)}</span>
+                                <span class="ue-dev-tag">${devEscape(item.category)}</span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="ue-dev-body">
                         ${devSection("Сайты и группы", groups)}
                         ${devSection("Материалы и ресурсы", resources)}
                         ${devSection("Контакты", contacts)}
+                        ${item.comment && item.comment.trim() ? `<hr class="ue-dev-divider"><div class="ue-dev-comment">${devEscape(item.comment)}</div>` : ""}
                     </div>
                 </article>
             `;
@@ -1042,7 +1067,7 @@ document.addEventListener("DOMContentLoaded", function () {
             fillDevelopersFilters();
             renderDevelopersDirectory();
             const bannerCount = document.querySelector('.ue-developers-banner-count');
-            if (bannerCount) bannerCount.textContent = `${developersDirectoryItems.length} компаний`;
+            if (bannerCount) bannerCount.textContent = `${developersDirectoryItems.length}`;
         } catch (error) {
             console.error("Urban Estate Developers:", error);
             if (status) status.textContent = "Не удалось загрузить список";
@@ -1364,3 +1389,4 @@ document.addEventListener("DOMContentLoaded", function () {
     initKeyRateWidget();
     initMortgageRatesWidget();
 });
+</script>
