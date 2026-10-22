@@ -1,4 +1,3 @@
-<script>
 document.addEventListener("DOMContentLoaded", function () {
     const STORAGE_KEY = "urbanEstateWorkspaceHistory";
     const OLD_STORAGE_KEY = "favoriteMiniCards";
@@ -901,8 +900,14 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Добавлена функция определения эмодзи по тексту ссылки
-    function getDevEmoji(title) {
+    function getDevEmoji(title, url) {
+        const href = String(url || "").toLowerCase();
+    
+        // Telegram — синяя иконка независимо от текста ссылки
+        if (href.includes("t.me")) return "🔵 ";
+    
         const t = String(title || "").toLowerCase();
+    
         if (t.includes("сайт")) return "🌐 ";
         if (t.includes("новости") || t.includes("группа")) return "🟣 ";
         if (t.includes("расчеты")) return "🟣 ";
@@ -910,6 +915,9 @@ document.addEventListener("DOMContentLoaded", function () {
         if (t.includes("шахматка")) return "♟ ";
         if (t.includes("кабинет")) return "💼 ";
         if (t.includes("материалы")) return "🗂 ";
+        if (t.includes("презентац")) return "🗂 "; 
+        if (t.includes("фикс")) return "🔗 ";
+        
         return "";
     }
 
@@ -917,7 +925,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const links = devList(items).map(devLinkItem).filter(x => x.url && devSafeUrl(x.url));
         if (!links.length) return "";
         return `<div class="ue-dev-links">${links.map(link => {
-            const emoji = getDevEmoji(link.title);
+            const emoji = getDevEmoji(link.title, link.url);
             return `<a class="ue-dev-link" href="${devEscape(devSafeUrl(link.url))}" target="_blank" rel="noopener noreferrer">${emoji}${devEscape(link.title)}</a>`;
         }).join("")}</div>`;
     }
@@ -1029,21 +1037,60 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     
+    function updateDevelopersCategoryFilter(city, selectedCategory = "") {
+        const categorySelect = $("#ue-dev-category");
+        if (!categorySelect) return;
     
+        const categoriesList = [
+            ...new Set(
+                developersDirectoryItems
+                    .filter(item => !city || item.city === city)
+                    .map(item => item.category)
+                    .filter(category =>
+                        category &&
+                        category !== "Категория не указана"
+                    )
+            )
+        ].sort((a, b) => a.localeCompare(b, "ru"));
     
-
+        categorySelect.innerHTML =
+            `<option value="">Все категории</option>` +
+            categoriesList.map(category =>
+                `<option value="${devEscape(category)}">${devEscape(category)}</option>`
+            ).join("");
+    
+        // Сохраняем выбор, только если категория доступна в этом городе
+        categorySelect.value = categoriesList.includes(selectedCategory)
+            ? selectedCategory
+            : "";
+    }
+    
     function fillDevelopersFilters() {
         const citySelect = $("#ue-dev-city");
         const categorySelect = $("#ue-dev-category");
+    
         if (!citySelect || !categorySelect) return;
+    
         const oldCity = citySelect.value;
         const oldCategory = categorySelect.value;
-        const cities = [...new Set(developersDirectoryItems.map(x => x.city).filter(x => x && x !== "Город не указан"))].sort((a, b) => a.localeCompare(b, "ru"));
-        const categoriesList = [...new Set(developersDirectoryItems.map(x => x.category).filter(x => x && x !== "Категория не указана"))].sort((a, b) => a.localeCompare(b, "ru"));
-        citySelect.innerHTML = `<option value="">Все города</option>` + cities.map(x => `<option value="${devEscape(x)}">${devEscape(x)}</option>`).join("");
-        categorySelect.innerHTML = `<option value="">Все категории</option>` + categoriesList.map(x => `<option value="${devEscape(x)}">${devEscape(x)}</option>`).join("");
+    
+        const cities = [
+            ...new Set(
+                developersDirectoryItems
+                    .map(item => item.city)
+                    .filter(city => city && city !== "Город не указан")
+            )
+        ].sort((a, b) => a.localeCompare(b, "ru"));
+    
+        citySelect.innerHTML =
+            `<option value="">Все города</option>` +
+            cities.map(city =>
+                `<option value="${devEscape(city)}">${devEscape(city)}</option>`
+            ).join("");
+    
         citySelect.value = cities.includes(oldCity) ? oldCity : "";
-        categorySelect.value = categoriesList.includes(oldCategory) ? oldCategory : "";
+    
+        updateDevelopersCategoryFilter(citySelect.value, oldCategory);
     }
 
     async function loadDevelopersDirectory() {
@@ -1098,9 +1145,25 @@ document.addEventListener("DOMContentLoaded", function () {
     $("#ue-developers-modal")?.addEventListener("click", event => {
         if (event.target === event.currentTarget) closeDevelopersDirectory();
     });
-    $("#ue-dev-search")?.addEventListener("input", renderDevelopersDirectory);
-    $("#ue-dev-city")?.addEventListener("change", renderDevelopersDirectory);
-    $("#ue-dev-category")?.addEventListener("change", renderDevelopersDirectory);
+    
+    $("#ue-dev-search")?.addEventListener(
+        "input",
+        renderDevelopersDirectory
+    );
+    
+    $("#ue-dev-city")?.addEventListener("change", () => {
+        const categorySelect = $("#ue-dev-category");
+        const selectedCategory = categorySelect?.value || "";
+        const selectedCity = $("#ue-dev-city")?.value || "";
+    
+        updateDevelopersCategoryFilter(selectedCity, selectedCategory);
+        renderDevelopersDirectory();
+    });
+    
+    $("#ue-dev-category")?.addEventListener(
+        "change",
+        renderDevelopersDirectory
+    );
 
     function renderAll() {
         history = loadHistory();
@@ -1389,4 +1452,3 @@ document.addEventListener("DOMContentLoaded", function () {
     initKeyRateWidget();
     initMortgageRatesWidget();
 });
-</script>
