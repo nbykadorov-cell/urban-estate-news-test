@@ -1,3 +1,4 @@
+<script>
 document.addEventListener("DOMContentLoaded", function () {
     const STORAGE_KEY = "urbanEstateWorkspaceHistory";
     const OLD_STORAGE_KEY = "favoriteMiniCards";
@@ -1461,3 +1462,5 @@ document.addEventListener("DOMContentLoaded", function () {
     initKeyRateWidget();
     initMortgageRatesWidget();
 });
+
+</script>
