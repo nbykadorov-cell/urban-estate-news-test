@@ -1,0 +1,281 @@
+<div id="ue-workspace">
+
+    <div id="ue-app">
+        <!-- HEADER -->
+        <header class="ue-topbar">
+            <div class="ue-brand">
+                <div class="ue-brand-mark"></div>
+                <div>
+                    <div class="ue-brand-name">URBAN ESTATE</div>
+                    <div class="ue-brand-sub">Рабочий портал</div>
+                </div>
+            </div>
+
+            <div class="ue-status">
+                <span class="ue-status-dot"></span> Все сервисы доступны
+            </div>
+        </header>
+
+        <!-- HERO -->
+        <section class="ue-hero">
+            <div class="ue-hero-content">
+                <h1>Здравствуй, <span class="tilda-user-name-output">Гость</span> 👋</h1>
+                <p class="ue-hero-text">Всё необходимое для работы — в одном месте</p>
+            </div>
+
+            <div class="ue-hero-actions">
+                <button class="ue-ai-button" id="ai-open-button" type="button" data-ue-ai>
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 3L13.7 8.3L19 10L13.7 11.7L12 17L10.3 11.7L5 10L10.3 8.3L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                        <path d="M19 16L19.8 18.2L22 19L19.8 19.8L19 22L18.2 19.8L16 19L18.2 18.2L19 16Z" stroke="currentColor" stroke-width="1.5" />
+                    </svg>
+                    AI-помощник
+                </button>
+            </div>
+        </section>
+
+        <!-- SEARCH -->
+        <div class="ue-search-wrap">
+            <div class="ue-search">
+                <svg class="ue-search-icon" viewBox="0 0 24 24" fill="none">
+                    <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" />
+                    <path d="M16 16L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <input id="ue-search-input" type="text" autocomplete="off" placeholder="Найти сервис, документ или инструмент...">
+                <span class="ue-search-kbd"> / </span>
+            </div>
+
+            <div id="ue-search-results" class="ue-search-results"></div>
+        </div>
+
+        <!-- MAIN -->
+        <div class="ue-main-grid">
+            <main class="ue-main">
+
+                <!-- QUICK ACCESS -->
+                <section class="ue-section">
+                    <div class="ue-section-head">
+                        <h2 class="ue-section-title">
+                            <span class="ue-section-title-icon">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 3L14.5 9.5L21 12L14.5 14.5L12 21L9.5 14.5L3 12L9.5 9.5L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                                </svg>
+                            </span>
+                            Быстрый доступ
+                        </h2>
+                    </div>
+
+                    <div id="ue-quick-grid" class="ue-quick-grid"></div>
+                </section>
+
+                <!-- NEWS -->
+                <section class="ue-section ue-news-section">
+                    <div class="ue-section-head ue-news-head">
+                        <h2 class="ue-section-title">
+                            <span class="ue-section-title-icon">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 5.5C4 4.67 4.67 4 5.5 4H19C19.55 4 20 4.45 20 5V18.5C20 19.33 19.33 20 18.5 20H5.5C4.67 20 4 19.33 4 18.5V5.5Z" stroke="currentColor" stroke-width="1.7" />
+                                    <path d="M8 8H16M8 12H16M8 16H13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                                </svg>
+                            </span>
+                            Новости
+                        </h2>
+
+                        <div class="ue-news-head-actions">
+                            <button type="button" class="ue-news-refresh" id="ue-news-refresh">
+                                ↻ Обновить
+                            </button>
+                            <span class="ue-section-caption" id="ue-news-status">Загрузка новостей…</span>
+                        </div>
+                    </div>
+
+                    <div id="ue-news-filters" class="ue-news-filters" role="tablist">
+                        <button type="button" class="ue-news-filter is-active" data-news-filter="all">Все</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="Ипотека и банки">Ипотека и банки</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="Недвижимость">Недвижимость</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="Новостройки">Новостройки</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="Законодательство">Законодательство</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="krasnodar">Краснодар</button>
+                        <button type="button" class="ue-news-filter" data-news-filter="rostov">Ростов</button>
+                    </div>
+
+                    <div id="ue-news-grid" class="ue-news-grid">
+                        <div class="ue-news-loading">
+                            Загрузка новостей…
+                        </div>
+                    </div>
+
+                    <button type="button" class="ue-news-more" id="ue-news-more" hidden>Еще <span>↓</span></button>
+
+                    <!--<div class="ue-news-note">-->
+                    <!--    <span class="ue-news-note-dot"></span>-->
+                    <!--    Новости загружаются автоматически-->
+                    <!--    из источников Urban Estate.-->
+                    <!--</div>-->
+                </section>
+
+                <!-- CATEGORIES -->
+                <section class="ue-section">
+                    <div class="ue-section-head">
+                        <h2 class="ue-section-title">
+                            <span class="ue-section-title-icon">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <rect x="4" y="4" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7" />
+                                    <rect x="14" y="4" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7" />
+                                    <rect x="4" y="14" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7" />
+                                    <rect x="14" y="14" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7" />
+                                </svg>
+                            </span>
+                            Все сервисы
+                        </h2>
+                    </div>
+                    <div id="ue-category-grid" class="ue-category-grid"></div>
+                    <div id="ue-developers-banner-container"></div>
+                </section>
+            </main>
+
+            <!-- SIDEBAR -->
+            <aside class="ue-sidebar">
+                <section class="ue-key-rate-card" id="ue-key-rate-card" aria-label="Ключевая ставка Банка России">
+                    <div class="ue-key-rate-top">
+                        <div class="ue-key-rate-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M3.5 9.5 12 4l8.5 5.5M5.5 10v8.5M9.8 10v8.5M14.2 10v8.5M18.5 10v8.5M3.5 20h17M2.5 22h19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="ue-key-rate-heading">Ключевая ставка ЦБ РФ</div>
+                            <div class="ue-key-rate-caption">Действующее значение</div>
+                        </div>
+                    </div>
+                    <div class="ue-key-rate-value-row" aria-live="polite">
+                        <span class="ue-key-rate-value ue-key-rate-skeleton" id="ue-key-rate-value" aria-label="Загрузка ставки"></span>
+                        <span class="ue-key-rate-percent">%</span>
+                    </div>
+                    <div class="ue-key-rate-bottom">
+                        <div class="ue-key-rate-date" id="ue-key-rate-date">Загрузка даты…</div>
+                        <div class="ue-key-rate-source"><a href="https://www.cbr.ru/hd_base/KeyRate/" target="_blank" rel="noopener noreferrer">Банк России ↗</a></div>
+                    </div>
+                    <div class="ue-key-rate-state" id="ue-key-rate-state">Получаем данные с сайта ЦБ РФ…</div>
+                </section>
+
+                <section class="ue-mortgage-widget" id="ue-mortgage-widget" aria-label="Ипотечные ставки на новостройки">
+                    <div class="ue-mortgage-head">
+                        <div>
+                            <div class="ue-mortgage-title">Ипотечные ставки</div>
+                        </div>
+                        <div class="ue-mortgage-badge">9 банков</div>
+                    </div>
+                    <div class="ue-mortgage-list" id="ue-mortgage-list" aria-live="polite">
+                        <div class="ue-mortgage-skeleton"></div>
+                        <div class="ue-mortgage-skeleton"></div>
+                        <div class="ue-mortgage-skeleton"></div>
+                    </div>
+                    <div class="ue-mortgage-state" id="ue-mortgage-state">Получаем данные с официальных сайтов банков…</div>
+                </section>
+
+                <section class="ue-side-card">
+                    <div class="ue-side-head">
+                        <div class="ue-side-title">Часто используемые</div>
+                    </div>
+                    <div id="ue-frequent-list" class="ue-side-list"></div>
+                </section>
+
+                <section class="ue-side-card">
+                    <div class="ue-side-head">
+                        <div class="ue-side-title">История просмотров</div>
+                        <button id="ue-clear-history" type="button" class="ue-clear-history">Очистить</button>
+                    </div>
+                    <div id="ue-history-list" class="ue-side-list"></div>
+                    <button class="ue-show-history" type="button" data-ue-open-history>Показать всю историю</button>
+                </section>
+            </aside>
+        </div>
+
+        <div class="ue-footer">Urban Estate · Рабочий портал</div>
+    </div>
+
+    <!-- CATEGORY MODAL -->
+    <div id="ue-category-modal" class="ue-modal" aria-hidden="true">
+        <div class="ue-modal-box">
+            <div class="ue-modal-head">
+                <div class="ue-modal-title-wrap">
+                    <div id="ue-modal-category-icon" class="ue-modal-icon"></div>
+                    <div>
+                        <div id="ue-modal-title" class="ue-modal-title">Категория</div>
+                        <div id="ue-modal-subtitle" class="ue-modal-subtitle"></div>
+                    </div>
+                </div>
+                <button id="ue-modal-close" class="ue-modal-close" type="button">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="ue-modal-body">
+                <div id="ue-modal-grid" class="ue-modal-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DEVELOPERS DIRECTORY MODAL: часть основного кода портала -->
+    <div id="ue-developers-modal" class="ue-modal" aria-hidden="true">
+        <div class="ue-modal-box">
+            <div class="ue-modal-head">
+                <div class="ue-modal-title-wrap">
+                    <div class="ue-modal-icon" style="color:#ec407a">🏢</div>
+                    <div>
+                        <div class="ue-modal-title">Застройщики</div>
+                        <div class="ue-modal-subtitle" id="ue-dev-subtitle">Загрузка списка компаний…</div>
+                    </div>
+                </div>
+                <button id="ue-dev-close" class="ue-modal-close" type="button" aria-label="Закрыть">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+            <div class="ue-modal-body">
+                <div class="ue-dev-toolbar">
+                    <input id="ue-dev-search" class="ue-dev-control" type="search" placeholder="Поиск застройщика…" autocomplete="off">
+                    <select id="ue-dev-city" class="ue-dev-control">
+                        <option value="">Все города</option>
+                    </select>
+                    <select id="ue-dev-category" class="ue-dev-control">
+                        <option value="">Все категории</option>
+                    </select>
+                </div>
+                <div id="ue-dev-status" class="ue-dev-status" aria-live="polite">Загрузка…</div>
+                <div id="ue-dev-list" class="ue-dev-list">
+                    <div class="ue-dev-empty">Получаем список застройщиков…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY MODAL -->
+    <div id="ue-history-modal" class="ue-modal" aria-hidden="true">
+        <div class="ue-modal-box">
+            <div class="ue-modal-head">
+                <div>
+                    <div class="ue-modal-title">Вся история</div>
+                    <div class="ue-modal-subtitle">Недавно открытые сервисы</div>
+                </div>
+                <button class="ue-modal-close" type="button" data-ue-close-history>
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="ue-modal-body">
+                <div id="ue-history-modal-list" class="ue-history-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ue-toast" class="ue-toast"></div>
+</div>
+
+<script src="https://storage.yandexcloud.net/urban-estate-portal-files-2026/urban-estate-portal.js?v=2"></script>
