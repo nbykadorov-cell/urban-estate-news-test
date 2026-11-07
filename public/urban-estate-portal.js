@@ -15,7 +15,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const categories = [
         { id: "tools", title: "Инструменты", description: "Рабочие инструменты", color: "#ec407a", icon: "tool" },
         { id: "estate", title: "Агрегаторы", description: "Недвижимость и базы", color: "#3b82f6", icon: "building" },
+        { id: "ipoteka", title: "Ипотека", description: "Банковские кабинеты", color: "#FF7A24", icon: "ipoteka" },
         { id: "platforms", title: "Платформы", description: "Основные площадки", color: "#8b5cf6", icon: "globe" },
+        { id: "cowork", title: "Коворкинг", description: "Работай откуда удобно!", color: "#942192", icon: "cowork" },
         { id: "work", title: "Эффективность", description: "Планирование работы", color: "#12b76a", icon: "check" },
         { id: "maps", title: "Карты", description: "Районы и локации", color: "#f79009", icon: "map" },
         { id: "docs", title: "Документы", description: "Чек-листы и документы", color: "#667085", icon: "file" },
@@ -25,7 +27,8 @@ document.addEventListener("DOMContentLoaded", function () {
         { id: "news", title: "Новости", description: "Новости недвижимости", color: "#ef4444", icon: "news" },
         { id: "other", title: "Прочее", description: "Реклама и сервисы", color: "#64748b", icon: "more" },
         { id: "links", title: "Полезные ссылки", description: "Проверки и реестры", color: "#14b8a6", icon: "link" },
-        { id: "developers", title: "Застройщики", description: "Контакты, сайты и материалы компаний", color: "#ec407a", icon: "building" }
+        { id: "developers", title: "Застройщики", description: "Контакты, сайты и материалы компаний", color: "#ec407a", icon: "building" },
+        { id: "dev", title: "Раздел в разработке", description: "Скоро здесь что-то будет =)", color: "#3b82f6", icon: "dev" }
     ];
 
     const servicesData = [
@@ -34,12 +37,15 @@ document.addEventListener("DOMContentLoaded", function () {
         ["calcus","tools","Калькус.ру","https://calcus.ru/","https://static.tildacdn.com/tild3631-3639-4533-a132-373638363362/Group_160.svg"],
         ["story-creator","tools","Конструктор макетов","https://urban-estate.ru/story-creator","https://static.tildacdn.com/tild3062-3865-4638-b632-323139396437/unnamed-2.png"],
         ["trendagent","estate","TrendAgent","https://trendagent.ru/","https://static.tildacdn.com/tild6335-6135-4130-b338-343239333931/4b69c1abcc678eb043e4.png"],
-        ["domclick","estate","Домклик Про","https://pro.domclick.ru/","https://static.tildacdn.com/tild6336-6430-4436-b434-343739333938/512x512bb.jpg"],
-        ["m2","estate","М2 Про","https://m2.ru/personal-area","https://static.tildacdn.com/tild6466-3134-4164-a532-326637366236/0d4cda885ae964a5e997.png"],
         ["nmarket","estate","НМаркет.ПРО","https://krasnodar.nmarket.pro/","https://static.tildacdn.com/tild6162-3434-4663-b535-643734333832/aa77e21d-0de6-47bb-a.webp"],
         ["pn-agent","estate","ПН Агент","https://pnpro.ru/search","https://static.rustore.ru/imgproxy/KbmqVL4uiW8ngsLlKhg6HYvfb1cnL5r_g-XMFwX-Kis/preset:web_app_icon_160/plain/https://static.rustore.ru/apk/2063604471/content/ICON/b3aec29b-e31b-490a-81d2-8cac059a8da0.jpg@webp"],
         ["itrielt","estate","ITRIELT","https://itrielt.ru/","https://static.tildacdn.com/tild6430-6334-4634-b665-316434343038/base64_i6i5eV.png"],
-        ["domrf","estate","Дом РФ","https://partner.domrfbank.ru/","https://static.tildacdn.com/tild3731-3238-4530-b039-333561326230/e76f176a-df54-4d98-a.png"],
+        ["domclick","ipoteka","Домклик Про","https://pro.domclick.ru/","https://static.tildacdn.com/tild6336-6430-4436-b434-343739333938/512x512bb.jpg"],
+        ["m2","ipoteka","М2 Про","https://m2.ru/personal-area","https://static.tildacdn.com/tild6466-3134-4164-a532-326637366236/0d4cda885ae964a5e997.png"],
+        ["alfa-bank","ipoteka","Альфа Банк","https://alfa.tymy.io/auth/login","https://static.rustore.ru/imgproxy/FjgsClgg0crUVE9DiaueyRVtmQQMrZ7fYyNh88Gedq0/preset:web_app_icon_160/plain/https://static.rustore.ru/afb07f02-5399-4f45-a366-e49a7b3420ad@webp"],
+        ["t-bank","ipoteka","Т-Банк","https://forma.tbank.ru/platform","https://static.rustore.ru/imgproxy/qqoP1Cyi4tplnwb8Z_yJ2mnWVhuen4kzin6tQLWsSHY/preset:web_app_icon_160/plain/https://static.rustore.ru/apk/220863/content/ICON/2238e3ca-e3e7-41d0-b037-777ddc637a5b.png@webp"],
+        ["domrf","ipoteka","Дом РФ","https://partner.domrfbank.ru/","https://static.tildacdn.com/tild3731-3238-4530-b039-333561326230/e76f176a-df54-4d98-a.png"],
+        ["banki","ipoteka","Банки.ру","https://banki.ru","https://static.rustore.ru/imgproxy/pe9FKhadeYUDwcpci4KZ6Y_FLgdVPFiukSzhFWu4UH0/preset:web_app_icon_160/plain/https://static.rustore.ru/apk/4428991/content/ICON/4822af97-bf02-4be0-a17b-5b42d379eaad.png@webp"],
         ["avito","platforms","Авито","https://www.avito.ru/","https://static.tildacdn.com/tild3061-6163-4539-a161-383538353861/i.jpeg"],
         ["cian","platforms","ЦИАН","https://cian.ru/","https://static.tildacdn.com/tild3535-6536-4134-a333-316664663233/noroot.png"],
         ["yandex-realty","platforms","Я.Недвижимость","https://realty.yandex.ru/","https://static.tildacdn.com/tild3563-6632-4332-a466-303636383835/Yandex_Realty_icon_2.png"],
@@ -85,8 +91,6 @@ document.addEventListener("DOMContentLoaded", function () {
         ["erz","news","ЕРЗ","https://erzrf.ru/news","https://static.tildacdn.com/tild3536-6662-4938-b764-376331343831/d6c15a3dc3b185d41e4a.jpg"],
         ["minstroy","news","Минстрой РФ","https://www.minstroyrf.gov.ru/press/?d=news","https://static.tildacdn.com/tild6136-6463-4239-b030-343339396335/vieapeascdvvbcgo12dg.jpg"],
         ["minfin","news","Минфин РФ","https://minfin.gov.ru/ru/press-center","https://static.tildacdn.com/tild3036-3866-4034-a432-323162616338/kgGJSMRRnAiIrrTkU9DC.webp"],
-        ["banki","other","Банки.ру","https://banki.ru","https://static.rustore.ru/imgproxy/pe9FKhadeYUDwcpci4KZ6Y_FLgdVPFiukSzhFWu4UH0/preset:web_app_icon_160/plain/https://static.rustore.ru/apk/4428991/content/ICON/4822af97-bf02-4be0-a17b-5b42d379eaad.png@webp"],
-        ["alfa-agent","other","Альфа АГЕНТ","https://agent.alfapolis.ru/lk","https://static.tildacdn.com/tild6236-3362-4032-b637-666132393462/91286ad1-537d-40f7-a.webp"],
         ["vk-ads","other","ВК Реклама","https://ads.vk.com/","https://static.tildacdn.com/tild3262-6538-4637-a534-663438613663/load-image.jpeg"],
         ["yandex-direct","other","Я.Директ","https://direct.yandex.ru/","https://static.tildacdn.com/tild6265-3632-4236-b262-363465303838/f_949679b2c907d6fe.jpg"],
         ["vitamin","other","Vitamin TOOLS","https://vitamin.tools/","https://static.tildacdn.com/tild3930-3335-4266-a530-323961383437/orig.png"],
@@ -110,7 +114,10 @@ document.addEventListener("DOMContentLoaded", function () {
         ["extremists","links","Реестр экстремистов","https://fedsfm.ru/documents/terr-list","https://static.tildacdn.com/tild6663-3834-4965-a436-633533633230/i_2.webp"],
         ["powers","links","Реестр доверенностей","https://www.reestr-dover.ru/","https://static.tildacdn.com/tild6662-3031-4332-b963-623764356462/cd4a1687570c4d6abda9.webp"],
         ["pledges","links","Реестр залогового движимого имущества","https://www.reestr-zalogov.ru/search/index","https://static.tildacdn.com/tild6662-3031-4332-b963-623764356462/cd4a1687570c4d6abda9.webp"],
-        ["inheritance","links","Реестр наследственных дел","https://notariat.ru/ru-ru/help/probate-cases/","https://static.tildacdn.com/tild6662-3031-4332-b963-623764356462/cd4a1687570c4d6abda9.webp"]
+        ["inheritance","links","Реестр наследственных дел","https://notariat.ru/ru-ru/help/probate-cases/","https://static.tildacdn.com/tild6662-3031-4332-b963-623764356462/cd4a1687570c4d6abda9.webp"],
+        ["officeagent","cowork","Office Agent","https://promo.trendagent.ru/officeagent/","https://avatars.mds.yandex.net/get-altay/15153151/2a00000194a7008c774bde8595dbd40977d6/S"],
+        ["timespace","cowork","Time Space","https://timespace.ru/","https://avatars.mds.yandex.net/get-altay/10376970/2a0000018df4d2529d65660f9c852b02a27c/S"],
+        ["vstrecha","cowork","Встреча РНД","https://vstrecha-kabinet.ru/","https://static.tildacdn.com/tild3936-6532-4635-b636-363662353931/_.jpg"]
     ];
 
     const services = servicesData.map(([id, category, title, url, icon]) => ({ id, category, title, url, icon }));
@@ -138,6 +145,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const icons = {
             tool: `<svg viewBox="0 0 24 24" fill="none"><path d="M14.5 5.5L18.5 9.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M13 7L5 15L4 20L9 19L17 11" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M16 4L20 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
             building: `<svg viewBox="0 0 24 24" fill="none"><path d="M5 21V5L14 3V21" stroke="currentColor" stroke-width="1.7"/><path d="M14 9H19V21" stroke="currentColor" stroke-width="1.7"/><path d="M8 8H10M8 12H10M8 16H10" stroke="currentColor" stroke-width="1.7"/></svg>`,
+            ipoteka: `<svg viewBox="0 -19 511.9999 511" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><linearGradient id="a"><stop offset="0" stop-color="#e93e3a"/><stop offset=".353" stop-color="#ed683c"/><stop offset=".701" stop-color="#f3903f"/><stop offset="1" stop-color="#fdc70c"/></linearGradient><linearGradient id="b" gradientTransform="matrix(.734894 0 0 -.734894 .000232 482.401515)" gradientUnits="userSpaceOnUse" x1="348.3493" x2="348.3493" xlink:href="#a" y1="18.6831" y2="755.8317"/><linearGradient id="c" gradientTransform="matrix(.734894 0 0 -.734894 .000232 482.401515)" gradientUnits="userSpaceOnUse" x1="348.3497" x2="348.3497" xlink:href="#a" y1="18.6831" y2="755.8317"/><path d="m511.695312 149.773438c-.613281-2.285157-2.105468-4.230469-4.15625-5.410157l-82.121093-47.421875v-69.691406c0-4.925781-3.992188-8.917969-8.917969-8.917969h-53.5c-4.921875 0-8.914062 3.992188-8.914062 8.917969v28.535156l-93.625-54.089844c-2.761719-1.59375-6.160157-1.59375-8.917969 0l-247.082031 142.667969c-4.265626 2.460938-5.726563 7.914063-3.265626 12.179688l17.835938 30.851562c2.460938 4.261719 7.914062 5.722657 12.179688 3.261719l28.621093-16.523438v281.117188c0 9.851562 7.984375 17.835938 17.835938 17.835938h356.667969c9.847656 0 17.832031-7.984376 17.832031-17.835938v-281.117188l28.621093 16.523438c4.265626 2.460938 9.71875 1 12.183594-3.261719l17.832032-30.851562c1.183593-2.050781 1.503906-4.484375.890624-6.769531zm-139.777343-113.609376h35.667969v50.480469l-35.667969-20.597656zm62.417969 419.085938h-356.667969v-291.40625l178.332031-102.933594 178.335938 102.933594zm47.648437-284.496094-221.527344-127.863281c-2.757812-1.59375-6.15625-1.59375-8.914062 0l-221.527344 127.863281-8.917969-15.40625 234.902344-135.632812 234.894531 135.632812zm0 0" fill="url(#b)"/><g fill="url(#c)"><path d="m247.082031 259.082031v10.558594c-13.902343 4.898437-21.199219 20.136719-16.304687 34.039063 3.765625 10.695312 13.882812 17.84375 25.222656 17.820312 4.925781 0 8.917969 3.992188 8.917969 8.917969s-3.992188 8.917969-8.917969 8.917969-8.917969-3.992188-8.917969-8.917969h-17.832031c.046875 11.296875 7.183594 21.34375 17.835938 25.109375v10.558594h17.832031v-10.558594c13.902343-4.898438 21.203125-20.136719 16.304687-34.039063-3.765625-10.695312-13.882812-17.84375-25.222656-17.820312-4.921875 0-8.914062-3.992188-8.914062-8.917969s3.992187-8.917969 8.914062-8.917969c4.925781 0 8.917969 3.992188 8.917969 8.917969h17.832031c-.046875-11.296875-7.183594-21.34375-17.832031-25.109375v-10.558594zm0 0"/><path d="m166.832031 312.582031c0 49.246094 39.921875 89.167969 89.167969 89.167969s89.167969-39.921875 89.167969-89.167969c0-49.242187-39.921875-89.164062-89.167969-89.164062-49.222656.054687-89.113281 39.941406-89.167969 89.164062zm160.5 0c0 39.398438-31.933593 71.335938-71.332031 71.335938s-71.335938-31.9375-71.335938-71.335938c0-39.394531 31.9375-71.332031 71.335938-71.332031 39.378906.042969 71.289062 31.957031 71.332031 71.332031zm0 0"/></g></svg>`,
             globe: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M4 12H20" stroke="currentColor" stroke-width="1.4"/><path d="M12 4C14 6.2 15 8.8 15 12C15 15.2 14 17.8 12 20" stroke="currentColor" stroke-width="1.4"/><path d="M12 4C10 6.2 9 8.8 9 12C9 15.2 10 17.8 12 20" stroke="currentColor" stroke-width="1.4"/></svg>`,
             check: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M8 12L10.7 14.7L16.5 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
             map: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 6L9 4L15 6L20 4V18L15 20L9 18L4 20V6Z" stroke="currentColor" stroke-width="1.6"/><path d="M9 4V18M15 6V20" stroke="currentColor" stroke-width="1.4"/></svg>`,
@@ -150,7 +158,8 @@ document.addEventListener("DOMContentLoaded", function () {
             link: `<svg viewBox="0 0 24 24" fill="none"><path d="M9.5 14.5L14.5 9.5" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 17.5L5.8 19.2C4.2 20.8 1.5 19.8 1.5 17.5C1.5 16.8 1.8 16.1 2.3 15.6L6.5 11.4C8 9.9 10.4 9.9 11.9 11.4" stroke="currentColor" stroke-width="1.7"/><path d="M16.5 6.5L18.2 4.8C19.8 3.2 22.5 4.2 22.5 6.5C22.5 7.2 22.2 7.9 21.7 8.4L17.5 12.6C16 14.1 13.6 14.1 12.1 12.6" stroke="currentColor" stroke-width="1.7"/></svg>`,
             star: `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L14.7 8.9L20.7 9.8L16.3 14L17.3 20L12 17.2L6.7 20L7.7 14L3.3 9.8L9.3 8.9L12 3.5Z" stroke="currentColor" stroke-width="1.6"/></svg>`,
             arrow: `<svg viewBox="0 0 24 24" fill="none"><path d="M5 12H19M13 6L19 12L13 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-            trash: `<svg viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V4H15V7M7 7L8 20H16L17 7" stroke="currentColor" stroke-width="1.6"/></svg>`
+            trash: `<svg viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V4H15V7M7 7L8 20H16L17 7" stroke="currentColor" stroke-width="1.6"/></svg>`,
+            cowork: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#942192"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <defs> <style>.cls-1,.cls-2{fill:none;stroke:#942192;stroke-miterlimit:10;stroke-width:1.91px;}.cls-1{stroke-linecap:square;}</style> </defs> <g id="office_chair" data-name="office chair"> <path class="cls-1" d="M10.09,1.5h3.82a3.82,3.82,0,0,1,3.82,3.82V13a0,0,0,0,1,0,0H6.27a0,0,0,0,1,0,0V5.32A3.82,3.82,0,0,1,10.09,1.5Z"></path> <path class="cls-1" d="M6.75,13h10.5a2.39,2.39,0,0,1,2.39,2.39v0a1.43,1.43,0,0,1-1.43,1.43H5.8a1.43,1.43,0,0,1-1.43-1.43v0A2.39,2.39,0,0,1,6.75,13Z"></path> <line class="cls-1" x1="12" y1="16.77" x2="12" y2="20.59"></line> <circle class="cls-1" cx="8.18" cy="21.55" r="0.95"></circle> <circle class="cls-1" cx="15.82" cy="21.55" r="0.95"></circle> <line class="cls-2" x1="8.18" y1="20.59" x2="15.82" y2="20.59"></line> </g> </g></svg>`
         };
         return icons[name] || "";
     }
